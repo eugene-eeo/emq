@@ -38,7 +38,7 @@ func enforceMethod(method string) func(http.Handler) http.Handler {
 
 type Middleware func(http.Handler) http.Handler
 
-func MultipleMiddleware(h http.Handler, m ...Middleware) http.Handler {
+func Chain(h http.Handler, m ...Middleware) http.Handler {
 	if len(m) < 1 {
 		return h
 	}

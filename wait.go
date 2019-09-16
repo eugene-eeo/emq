@@ -5,52 +5,36 @@ type Waiters struct {
 	tail *Waiter
 }
 
-func (ws *Waiters) AddWaiter(w *Waiter, queues map[string]*Queue) {
-	for _, name := range w.Queues {
-		q := queues[name]
-		if q != nil {
-			w.Update(q.Dequeue())
-		}
-	}
-	// Only add to the list of waiters if we cannot satisfy it immediately
-	if w.IsReady() {
-		w.EmitReady()
+func (ws *Waiters) AddWaiter(w *Waiter) {
+	if ws.tail == nil {
+		ws.head = w
+		ws.tail = w
 	} else {
-		if ws.tail == nil {
-			ws.head = w
-			ws.tail = w
-		} else {
-			ws.tail.Next = w
-			ws.tail = w
-		}
+		ws.tail.Next = w
+		ws.tail = w
 	}
 }
 
-func (ws *Waiters) Update(q *Queue, t *Task) {
-	// Consume a task if possible
+func (ws *Waiters) Update(queues map[string]*Queue) {
 	var prev *Waiter = nil
 	curr := ws.head
 	for curr != nil {
-		if curr.Update(t) {
-			if curr.IsReady() {
-				if prev != nil {
-					prev.Next = curr.Next
-				} else {
-					ws.head = curr.Next
-				}
-				if curr == ws.tail {
-					ws.tail = nil
-				}
-				curr.EmitReady()
+		if curr.IsReady(queues) {
+			if prev != nil {
+				prev.Next = curr.Next
+			} else {
+				ws.head = curr.Next
 			}
-			return
+			if curr == ws.tail {
+				ws.tail = nil
+			}
+			curr.Consume(queues)
+			curr.EmitReady()
 		}
 		// Advance
 		prev = curr
 		curr = curr.Next
 	}
-	// Otherwise enqueue it
-	q.Enqueue(t)
 }
 
 type WaitConfigJson struct {
@@ -80,27 +64,28 @@ func (w *Waiter) EmitReady() {
 	close(w.Ready)
 }
 
-func (w *Waiter) IsReady() bool {
+func (w *Waiter) IsReady(queues map[string]*Queue) bool {
 	if w.NoWait {
 		return true
 	}
-	for _, x := range w.Tasks {
-		if x == nil {
+	counts := map[string]int{}
+	for _, x := range w.Queues {
+		counts[x]++
+	}
+	for x, n := range counts {
+		q := queues[x]
+		if q == nil || q.count < n {
 			return false
 		}
 	}
 	return true
 }
 
-func (w *Waiter) Update(t *Task) bool {
-	if t == nil {
-		return false
-	}
+func (w *Waiter) Consume(queues map[string]*Queue) {
 	for i, name := range w.Queues {
-		if name == t.QueueName && w.Tasks[i] == nil {
-			w.Tasks[i] = t
-			return true
+		q := queues[name]
+		if q != nil {
+			w.Tasks[i] = q.Dequeue()
 		}
 	}
-	return false
 }

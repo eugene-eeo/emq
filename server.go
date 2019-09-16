@@ -25,6 +25,12 @@ func (s *server) getQueue(name string) *Queue {
 	return q
 }
 
+func (s *server) enqueueTask(t *Task) {
+	s.tasks[t.Id] = t
+	s.getQueue(t.QueueName).Enqueue(t)
+	s.waiters.Update(s.queues)
+}
+
 func (s *server) hello() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		enc := json.NewEncoder(w)
@@ -61,10 +67,8 @@ func (s *server) enqueue() http.Handler {
 			return
 		}
 
-		queue := s.getQueue(queueName)
 		task := NewTaskFromConfig(tc, queueName)
-		s.tasks[task.Id] = task
-		s.waiters.Update(queue, task)
+		s.enqueueTask(task)
 
 		enc := json.NewEncoder(w)
 		enc.Encode(map[string]string{"id": task.Id})
@@ -85,7 +89,8 @@ func (s *server) addWaiter() http.HandlerFunc {
 
 		s.mu.Lock()
 		waiter := NewWaiterFromConfig(&wc)
-		s.waiters.AddWaiter(waiter, s.queues)
+		s.waiters.AddWaiter(waiter)
+		s.waiters.Update(s.queues)
 		s.mu.Unlock()
 
 		<-waiter.Ready
@@ -110,10 +115,7 @@ func (s *server) done() http.Handler {
 		}
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		task := s.tasks[taskId]
-		if task != nil {
-			go s.dispatched.Done(task)
-		}
+		s.dispatched.Put(s.tasks[taskId], StatusOk)
 	})
 }
 
@@ -126,10 +128,7 @@ func (s *server) fail() http.Handler {
 		}
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		task := s.tasks[taskId]
-		if task != nil {
-			go s.dispatched.Failed(task)
-		}
+		s.dispatched.Put(s.tasks[taskId], StatusFail)
 	})
 }
 
@@ -141,11 +140,9 @@ func (s *server) listenDispatched() {
 		case StatusOk:
 			delete(s.tasks, t.Id)
 		case StatusFail:
-			fallthrough
-		case StatusTimeout:
 			t.Retries--
 			if t.Retries >= 0 {
-				s.waiters.Update(s.getQueue(t.QueueName), t)
+				s.enqueueTask(t)
 			} else {
 				delete(s.tasks, t.Id)
 			}
@@ -156,27 +153,19 @@ func (s *server) listenDispatched() {
 }
 
 func (s *server) routes() {
-	s.router.Handle("/fail/", MultipleMiddleware(
-		s.fail(),
-		logRequest,
-		enforceMethod("POST"),
-	))
-	s.router.Handle("/done/", MultipleMiddleware(
-		s.done(),
-		logRequest,
-		enforceMethod("POST"),
-	))
-	s.router.Handle("/wait/", MultipleMiddleware(
+	s.router.Handle("/fail/", Chain(s.fail(), logRequest, enforceMethod("POST")))
+	s.router.Handle("/done/", Chain(s.done(), logRequest, enforceMethod("POST")))
+	s.router.Handle("/wait/", Chain(
 		s.addWaiter(),
 		logRequest,
 		enforceMethod("POST"),
 		enforceJSONHandler,
 	))
-	s.router.Handle("/enqueue/", MultipleMiddleware(
+	s.router.Handle("/enqueue/", Chain(
 		s.enqueue(),
 		logRequest,
 		enforceMethod("POST"),
 		enforceJSONHandler,
 	))
-	s.router.Handle("/", MultipleMiddleware(s.hello(), logRequest))
+	s.router.Handle("/", Chain(s.hello(), logRequest))
 }

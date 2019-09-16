@@ -25,7 +25,7 @@ func (d *Dispatched) Untrack(t *Task) {
 }
 
 func (d *Dispatched) Track(t *Task) {
-	c := make(chan TaskStatus)
+	c := make(chan TaskStatus, 1)
 	d.statuses[t] = c
 	go func() {
 		timer := time.NewTimer(time.Second * time.Duration(t.JobDuration))
@@ -36,7 +36,7 @@ func (d *Dispatched) Track(t *Task) {
 				// Check if we really expired
 				if t.JobDuration > 0 {
 					log.Print("Timeout")
-					d.fwd <- TaskInfo{t, StatusTimeout}
+					d.fwd <- TaskInfo{t, StatusFail}
 					return
 				}
 			case status := <-c:
@@ -48,16 +48,9 @@ func (d *Dispatched) Track(t *Task) {
 	}()
 }
 
-func (d *Dispatched) Done(t *Task) {
-	c := d.statuses[t]
-	if c != nil {
-		c <- StatusOk
-	}
-}
-
-func (d *Dispatched) Failed(t *Task) {
-	c := d.statuses[t]
-	if c != nil {
-		c <- StatusFail
+func (d *Dispatched) Put(t *Task, status TaskStatus) {
+	ch := d.statuses[t]
+	if ch != nil {
+		ch <- status
 	}
 }
