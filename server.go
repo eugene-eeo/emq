@@ -116,20 +116,18 @@ func (s *server) addWaiter(w http.ResponseWriter, r *http.Request) {
 	waiter := NewWaiterFromConfig(&wc)
 
 	// Fast case
+	s.mu.Lock()
 	if waiter.Timeout == 0 {
-		s.mu.Lock()
 		waiter.Consume(s.queues)
-		s.mu.Unlock()
 	} else {
-		s.mu.Lock()
 		s.waiters.AddWaiter(waiter)
 		s.waiters.Update(s.queues)
 		s.mu.Unlock()
 		// Wait happens here!
 		s.waitForWaiter(waiter)
+		s.mu.Lock()
 	}
 
-	s.mu.Lock()
 	for _, task := range waiter.Tasks {
 		if task != nil && task.JobDuration > 0 {
 			// Add timers if necessary
