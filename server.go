@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/eugene-eeo/emq/tctx2"
 	"log"
 	"net/http"
 	"sync"
@@ -9,13 +10,16 @@ import (
 )
 
 type server struct {
+	uid        uint64
 	mu         sync.Mutex
+	dispatched chan TaskInfo
 	waiters    *Waiters
-	dispatched *Dispatched
-	tasks      map[string]*Task
+	tasksById  map[string]*Task
+	tasks      map[TaskUid]*Task
 	queues     map[string]*Queue
 	router     *http.ServeMux
 	version    Version
+	context    *tctx2.Context
 }
 
 func (s *server) getQueue(name string) *Queue {
@@ -28,7 +32,8 @@ func (s *server) getQueue(name string) *Queue {
 }
 
 func (s *server) enqueueTask(t *Task) {
-	s.tasks[t.Id] = t
+	s.tasksById[t.Id] = t
+	s.tasks[t.Uid] = t
 	s.getQueue(t.QueueName).Enqueue(t)
 	s.waiters.Update(s.queues)
 }
@@ -63,14 +68,18 @@ func (s *server) enqueue() http.Handler {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 
-		_, ok := s.tasks[tc.Id]
-		if ok {
+		if s.tasksById[tc.Id] != nil {
 			http.Error(w, "Task already enqueued", 401)
 			return
 		}
 
+		s.uid++
 		task := NewTaskFromConfig(tc, queueName)
+		task.Uid = TaskUid(s.uid)
 		s.enqueueTask(task)
+		if task.Expiry > 0 {
+			s.context.Add(TaskInfo{task.Uid, StatusExpired}, task.Expiry)
+		}
 
 		enc := json.NewEncoder(w)
 		enc.Encode(map[string]string{"id": task.Id})
@@ -120,8 +129,9 @@ func (s *server) addWaiter() http.HandlerFunc {
 
 		s.mu.Lock()
 		for _, task := range waiter.Tasks {
-			if task != nil {
-				s.dispatched.Track(task)
+			if task != nil && task.JobDuration > 0 {
+				// Add timers if necessary
+				s.context.Add(TaskInfo{task.Uid, StatusTimeout}, task.JobDuration)
 			}
 		}
 		log.Print("Waiter finished")
@@ -139,7 +149,10 @@ func (s *server) done() http.Handler {
 		}
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		s.dispatched.Put(s.tasks[taskId], StatusOk)
+		t := s.tasksById[taskId]
+		if t != nil {
+			go func() { s.dispatched <- TaskInfo{t.Uid, StatusOk} }()
+		}
 	})
 }
 
@@ -152,32 +165,63 @@ func (s *server) fail() http.Handler {
 		}
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		s.dispatched.Put(s.tasks[taskId], StatusFail)
+		t := s.tasksById[taskId]
+		if t != nil {
+			go func() { s.dispatched <- TaskInfo{t.Uid, StatusFail} }()
+		}
 	})
 }
 
-func (s *server) listenDispatched() {
-	for taskInfo := range s.dispatched.fwd {
-		s.mu.Lock()
-		t := taskInfo.task
-		switch taskInfo.status {
-		case StatusOk:
-			delete(s.tasks, t.Id)
+func (s *server) handleTaskInfo(ti TaskInfo) {
+	uid := ti.uid
+	t := s.tasks[uid]
+	switch ti.status {
+	case StatusOk:
+		if t != nil {
+			delete(s.tasksById, t.Id)
+			delete(s.tasks, uid)
 			log.Printf("Removed %s (OK)", t.Id)
-		case StatusFail:
-			if s.tasks[t.Id] != nil {
-				t.Retries--
-				if t.Retries >= 0 {
-					s.enqueueTask(t)
-					log.Printf("Requeue %s", t.Id)
-				} else {
-					delete(s.tasks, t.Id)
-					log.Printf("Removed %s (Fail)", t.Id)
-				}
-			}
 		}
-		s.dispatched.Untrack(t)
-		s.mu.Unlock()
+	case StatusExpired:
+		if t != nil {
+			delete(s.tasksById, t.Id)
+			delete(s.tasks, uid)
+			log.Printf("Removed %s (Expired)", t.Id)
+		}
+	case StatusTimeout:
+		fallthrough
+	case StatusFail:
+		// Already timed out somewhere
+		if t == nil {
+			return
+		}
+		t.Retries--
+		if t.Retries >= 0 {
+			s.enqueueTask(t)
+			log.Printf("Requeue %s", t.Id)
+		} else {
+			delete(s.tasksById, t.Id)
+			delete(s.tasks, uid)
+			log.Printf("Removed %s (Fail)", t.Id)
+		}
+	}
+}
+
+func (s *server) listenDispatched() {
+	for {
+		select {
+		case obj := <-s.context.C:
+			switch obj.(type) {
+			case TaskInfo:
+				s.mu.Lock()
+				s.handleTaskInfo(obj.(TaskInfo))
+				s.mu.Unlock()
+			}
+		case taskInfo := <-s.dispatched:
+			s.mu.Lock()
+			s.handleTaskInfo(taskInfo)
+			s.mu.Unlock()
+		}
 	}
 }
 
