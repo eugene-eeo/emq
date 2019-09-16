@@ -18,7 +18,7 @@ func (ws *Waiters) AddWaiter(w *Waiter) {
 	}
 }
 
-func (ws *Waiters) Remove(w *Waiter) (*Waiter, *Waiter) {
+func (ws *Waiters) Remove(w *Waiter) {
 	prev := w.Prev
 	next := w.Next
 	if prev != nil {
@@ -34,58 +34,52 @@ func (ws *Waiters) Remove(w *Waiter) (*Waiter, *Waiter) {
 	// Clear for GC
 	w.Next = nil
 	w.Prev = nil
-	return prev, next
 }
 
 func (ws *Waiters) Update(queues map[string]*Queue) {
 	curr := ws.head
 	for curr != nil {
-		ready := curr.IsReady(queues)
-		if ready {
-			_, next := ws.Remove(curr)
+		next := curr.Next
+		if curr.IsReady(queues) {
+			ws.Remove(curr)
 			curr.Consume(queues)
 			curr.EmitReady()
-			curr = next
-		} else {
-			curr = curr.Next
 		}
+		curr = next
 	}
 }
 
 type WaitConfigJson struct {
-	NoWait  bool     `json:"no_wait"`
 	Queues  []string `json:"queues"`
 	Timeout int      `json:"timeout"` // Timeout in seconds
 }
 
 type Waiter struct {
-	NoWait   bool
-	Queues   []string
-	Tasks    []*Task
-	Ready    chan bool
-	Prev     *Waiter
-	Next     *Waiter
-	Deadline time.Time
+	Queues  []string
+	Tasks   []*Task
+	Ready   chan bool
+	Prev    *Waiter
+	Next    *Waiter
+	Timeout time.Duration
+	Done    bool
 }
 
 func NewWaiterFromConfig(wc *WaitConfigJson) *Waiter {
 	return &Waiter{
-		NoWait: wc.NoWait,
-		Queues: wc.Queues,
-		Tasks:  make([]*Task, len(wc.Queues)),
-		Ready:  make(chan bool, 1),
+		Queues:  wc.Queues,
+		Tasks:   make([]*Task, len(wc.Queues)),
+		Ready:   make(chan bool, 1),
+		Timeout: time.Duration(wc.Timeout) * time.Second,
 	}
 }
 
 func (w *Waiter) EmitReady() {
+	w.Done = true
 	w.Ready <- true
 	close(w.Ready)
 }
 
 func (w *Waiter) IsReady(queues map[string]*Queue) bool {
-	if w.NoWait {
-		return true
-	}
 	counts := map[string]int{}
 	for _, x := range w.Queues {
 		counts[x]++

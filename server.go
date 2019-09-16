@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"time"
 )
 
 type server struct {
@@ -44,13 +45,13 @@ func (s *server) enqueue() http.Handler {
 		tc := &TaskConfig{}
 		queueName := r.URL.Path[len("/enqueue/"):]
 		if len(queueName) == 0 {
-			http.Error(w, http.StatusText(422), 422)
+			http.Error(w, http.StatusText(404), 404)
 			return
 		}
 
 		dec := json.NewDecoder(r.Body)
 		if err := dec.Decode(tc); err != nil {
-			http.Error(w, http.StatusText(422), 422)
+			http.Error(w, err.Error(), 422)
 			return
 		}
 
@@ -76,6 +77,27 @@ func (s *server) enqueue() http.Handler {
 	})
 }
 
+func (s *server) waitForWaiter(w *Waiter) {
+	if w.Timeout < 0 {
+		<-w.Ready
+		return
+	}
+	timer := time.NewTimer(w.Timeout)
+	select {
+	case <-timer.C:
+		timer.Stop()
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		// If we haven't been consumed yet
+		if !w.Done {
+			w.Consume(s.queues)
+			s.waiters.Remove(w)
+		}
+	case <-w.Ready:
+		timer.Stop()
+	}
+}
+
 func (s *server) addWaiter() http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		dec := json.NewDecoder(r.Body)
@@ -94,7 +116,7 @@ func (s *server) addWaiter() http.HandlerFunc {
 		s.waiters.Update(s.queues)
 		s.mu.Unlock()
 
-		<-waiter.Ready
+		s.waitForWaiter(waiter)
 
 		s.mu.Lock()
 		for _, task := range waiter.Tasks {
