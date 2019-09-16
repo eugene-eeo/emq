@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"github.com/eugene-eeo/emq/tctx2"
+	"github.com/satori/go.uuid"
 	"log"
 	"net/http"
 	"sync"
@@ -10,12 +11,10 @@ import (
 )
 
 type server struct {
-	uid        uint64
 	mu         sync.Mutex
 	dispatched chan TaskInfo
 	waiters    *Waiters
-	tasksById  map[string]*Task
-	tasks      map[TaskUid]*Task
+	tasksById  map[uuid.UUID]*Task
 	queues     map[string]*Queue
 	router     *http.ServeMux
 	version    Version
@@ -33,7 +32,6 @@ func (s *server) getQueue(name string) *Queue {
 
 func (s *server) enqueueTask(t *Task) {
 	s.tasksById[t.Id] = t
-	s.tasks[t.Uid] = t
 	s.getQueue(t.QueueName).Enqueue(t)
 	s.waiters.Update(s.queues)
 }
@@ -57,29 +55,30 @@ func (s *server) enqueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := tc.Fill(); err != nil {
-		http.Error(w, err.Error(), 422)
-		return
-	}
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.tasksById[tc.Id] != nil {
-		http.Error(w, "Task already enqueued", 401)
-		return
+	id, err := uuid.NewV4()
+	for {
+		if err != nil {
+			http.Error(w, err.Error(), 422)
+			return
+		}
+		if s.tasksById[id] == nil {
+			break
+		}
+		id, err = uuid.NewV4()
 	}
 
-	s.uid++
 	task := NewTaskFromConfig(tc, queueName)
-	task.Uid = TaskUid(s.uid)
+	task.Id = id
 	s.enqueueTask(task)
 	if task.Expiry > 0 {
-		s.context.Add(TaskInfo{task.Uid, StatusExpired}, task.Expiry)
+		s.context.Add(TaskInfo{task.Id, StatusExpired}, task.Expiry)
 	}
 
 	enc := json.NewEncoder(w)
-	enc.Encode(map[string]string{"id": task.Id})
+	enc.Encode(task.Id)
 }
 
 func (s *server) waitForWaiter(w *Waiter) {
@@ -134,7 +133,7 @@ func (s *server) addWaiter(w http.ResponseWriter, r *http.Request) {
 	for _, task := range waiter.Tasks {
 		if task != nil && task.JobDuration > 0 {
 			// Add timers if necessary
-			s.context.Add(TaskInfo{task.Uid, StatusTimeout}, task.JobDuration)
+			s.context.Add(TaskInfo{task.Id, StatusTimeout}, task.JobDuration)
 		}
 	}
 	log.Print("Waiter finished")
@@ -146,23 +145,17 @@ func (s *server) makeTaskUpdater(prefix string, status TaskStatus) http.HandlerF
 	size := len(prefix)
 	return func(w http.ResponseWriter, r *http.Request) {
 		taskId := r.URL.Path[size:]
-		if len(taskId) == 0 {
-			http.Error(w, http.StatusText(422), 422)
+		uid, err := uuid.FromString(taskId)
+		if err != nil {
+			http.Error(w, err.Error(), 422)
 			return
 		}
-		s.mu.Lock()
-		t := s.tasksById[taskId]
-		s.mu.Unlock()
-		if t != nil {
-			s.dispatched <- TaskInfo{t.Uid, status}
-		} else {
-			http.Error(w, http.StatusText(404), 404)
-		}
+		s.dispatched <- TaskInfo{uid, status}
 	}
 }
 
 func (s *server) handleTaskInfo(ti TaskInfo) {
-	t := s.tasks[ti.uid]
+	t := s.tasksById[ti.id]
 	if t == nil {
 		return
 	}
@@ -176,7 +169,6 @@ func (s *server) handleTaskInfo(ti TaskInfo) {
 		}
 	}
 	delete(s.tasksById, t.Id)
-	delete(s.tasks, t.Uid)
 	log.Printf("Removed %s", t.Id)
 }
 
@@ -200,7 +192,7 @@ func (s *server) listenDispatched() {
 
 func (s *server) routes() {
 	s.router.Handle("/fail/", Chain(s.makeTaskUpdater("/fail/", StatusFail), logRequest, enforceMethod("POST")))
-	s.router.Handle("/done/", Chain(s.makeTaskUpdater("/fail/", StatusOk), logRequest, enforceMethod("POST")))
+	s.router.Handle("/done/", Chain(s.makeTaskUpdater("/fail/", StatusDone), logRequest, enforceMethod("POST")))
 	s.router.Handle("/wait/", Chain(
 		s.addWaiter,
 		logRequest,

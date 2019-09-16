@@ -5,20 +5,17 @@ import (
 	"time"
 )
 
-type TaskUid uint64
-
 type TaskStatus int
 
 const (
-	StatusOk = TaskStatus(iota)
+	StatusDone = TaskStatus(iota)
 	StatusFail
 	StatusTimeout
 	StatusExpired
 )
 
 type Task struct {
-	Id          string        `json:"id"`
-	Uid         TaskUid       `json:"-"` // Internal ID
+	Id          uuid.UUID     `json:"id"`
 	QueueName   string        `json:"-"`
 	Content     interface{}   `json:"content"`
 	Retries     int           `json:"retries"`
@@ -27,22 +24,11 @@ type Task struct {
 }
 
 type TaskConfig struct {
-	Id          string      `json:"id"`
+	Id          uuid.UUID   `json:"-"`
 	Content     interface{} `json:"content"`
 	Retries     int         `json:"retries"`
 	JobDuration int         `json:"job_duration"` // Job duration in seconds
 	Expiry      int         `json:"expiry"`       // Job duration in seconds
-}
-
-func (tc *TaskConfig) Fill() error {
-	if tc.Id == "" {
-		id, err := uuid.NewV4()
-		if err != nil {
-			return err
-		}
-		tc.Id = id.String()
-	}
-	return nil
 }
 
 func NewTaskFromConfig(tc *TaskConfig, queueName string) *Task {
@@ -57,6 +43,6 @@ func NewTaskFromConfig(tc *TaskConfig, queueName string) *Task {
 }
 
 type TaskInfo struct {
-	uid    TaskUid
+	id     uuid.UUID
 	status TaskStatus
 }
