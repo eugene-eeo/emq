@@ -15,14 +15,9 @@ To enqueue some data:
 
 To dequeue:
 
-    $ curl --data '{"queues": ["queue-name"]}' localhost:8080/wait/
+    $ curl --data '{"queues": ["queue-name"], "timeout": 10}' localhost:8080/wait/
     [{"id": "e08ef6fa-...", "content": {...}}]
 
-
-To deque without waiting (may get null tasks):
-
-    $ curl --data '{"queues": ["queue-name", "other-queue"]}' localhost:8080/wait/
-    [{"id": "e08ef6fa-...", "content": {...}}, null]
 
 To mark task completion and failure, resp:
 
@@ -33,5 +28,5 @@ To mark task completion and failure, resp:
 ### todo
 
  - [ ] job timeouts
- - [ ] use more efficient waiters list
+ - [x] use more efficient waiters list
  - [ ] clean up code

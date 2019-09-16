@@ -1,7 +1,5 @@
 package main
 
-import "log"
-
 const MAX_QUEUE_SIZE int = 1025
 
 type Queue struct {
@@ -24,28 +22,11 @@ func NewQueue(name string) *Queue {
 	}
 }
 
-func (q *Queue) Print() {
-	log.Print("================")
-	log.Printf("Head: %d", q.head)
-	log.Printf("Tail: %d", q.tail)
-	log.Printf("Count: %d", q.count)
-	x := []string{}
-	for _, task := range q.tasks {
-		if task == nil {
-			x = append(x, "<nil>")
-		} else {
-			x = append(x, task.Id)
-		}
-	}
-	log.Print(x)
-}
-
 func (q *Queue) full() bool {
 	return q.size-1 == q.count
 }
 
 func (q *Queue) Enqueue(t *Task) bool {
-	//q.Print()
 	if q.full() {
 		if q.size >= MAX_QUEUE_SIZE {
 			return false
@@ -71,12 +52,10 @@ func (q *Queue) Enqueue(t *Task) bool {
 	q.count++
 	q.tasks[q.tail] = t
 	q.tail = (q.tail + 1) % q.size
-	//q.Print()
 	return true
 }
 
 func (q *Queue) Dequeue() *Task {
-	//q.Print()
 	task := q.tasks[q.head]
 	if task == nil {
 		return nil
@@ -84,6 +63,5 @@ func (q *Queue) Dequeue() *Task {
 	q.tasks[q.head] = nil
 	q.count--
 	q.head = (q.head + 1) % len(q.tasks)
-	//q.Print()
 	return task
 }
