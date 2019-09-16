@@ -16,10 +16,11 @@ func logRequest(next http.Handler) http.Handler {
 
 func enforceJSONHandler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.ContentLength == 0 {
+		if r.Method == "POST" && r.ContentLength == 0 {
 			http.Error(w, http.StatusText(400), 400)
 			return
 		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		next.ServeHTTP(w, r)
 	})
 }
