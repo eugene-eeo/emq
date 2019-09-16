@@ -171,8 +171,7 @@ func (s *server) fail(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleTaskInfo(ti TaskInfo) {
-	uid := ti.uid
-	t := s.tasks[uid]
+	t := s.tasks[ti.uid]
 	if t == nil {
 		return
 	}
@@ -186,7 +185,7 @@ func (s *server) handleTaskInfo(ti TaskInfo) {
 		}
 	}
 	delete(s.tasksById, t.Id)
-	delete(s.tasks, uid)
+	delete(s.tasks, t.Uid)
 	log.Printf("Removed %s", t.Id)
 }
 

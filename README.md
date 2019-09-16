@@ -22,5 +22,5 @@ To dequeue:
 
 To mark task completion and failure, resp:
 
-    $ curl localhost:8080/done/:id
-    $ curl localhost:8080/fail/:id
+    $ curl -X POST localhost:8080/done/:id
+    $ curl -X POST localhost:8080/fail/:id
