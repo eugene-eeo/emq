@@ -8,7 +8,7 @@ import (
 
 type server struct {
 	mu         sync.Mutex
-	waiters    Waiters
+	waiters    *Waiters
 	dispatched *Dispatched
 	tasks      map[string]*Task
 	queues     map[string]*Queue

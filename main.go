@@ -12,7 +12,7 @@ func main() {
 		tasks:   map[string]*Task{},
 		queues:  map[string]*Queue{},
 		router:  mux,
-		waiters: Waiters{},
+		waiters: &Waiters{},
 		version: Version{
 			Version: "0.1.0-alpha",
 		},

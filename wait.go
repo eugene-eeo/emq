@@ -1,6 +1,9 @@
 package main
 
-type Waiters []*Waiter
+type Waiters struct {
+	head *Waiter
+	tail *Waiter
+}
 
 func (ws *Waiters) AddWaiter(w *Waiter, queues map[string]*Queue) {
 	for _, name := range w.Queues {
@@ -13,22 +16,38 @@ func (ws *Waiters) AddWaiter(w *Waiter, queues map[string]*Queue) {
 	if w.IsReady() {
 		w.EmitReady()
 	} else {
-		*ws = append(*ws, w)
+		if ws.tail == nil {
+			ws.head = w
+			ws.tail = w
+		} else {
+			ws.tail.Next = w
+			ws.tail = w
+		}
 	}
 }
 
 func (ws *Waiters) Update(q *Queue, t *Task) {
 	// Consume a task if possible
-	if len(*ws) > 0 {
-		top := (*ws)[0]
-		top.Update(t)
-		if top.IsReady() {
-			top.EmitReady()
-			copy((*ws)[0:], (*ws)[1:])
-			(*ws)[len(*ws)-1] = nil
-			*ws = (*ws)[:len(*ws)-1]
+	var prev *Waiter = nil
+	curr := ws.head
+	for curr != nil {
+		if curr.Update(t) {
+			if curr.IsReady() {
+				if prev != nil {
+					prev.Next = curr.Next
+				} else {
+					ws.head = curr.Next
+				}
+				if curr == ws.tail {
+					ws.tail = nil
+				}
+				curr.EmitReady()
+			}
 			return
 		}
+		// Advance
+		prev = curr
+		curr = curr.Next
 	}
 	// Otherwise enqueue it
 	q.Enqueue(t)
@@ -44,6 +63,7 @@ type Waiter struct {
 	Queues []string
 	Tasks  []*Task
 	Ready  chan bool
+	Next   *Waiter
 }
 
 func NewWaiterFromConfig(wc *WaitConfigJson) *Waiter {
@@ -72,15 +92,15 @@ func (w *Waiter) IsReady() bool {
 	return true
 }
 
-func (w *Waiter) Update(t *Task) {
+func (w *Waiter) Update(t *Task) bool {
 	if t == nil {
-		return
+		return false
 	}
-	found := false
 	for i, name := range w.Queues {
-		if !found && name == t.QueueName && w.Tasks[i] == nil {
+		if name == t.QueueName && w.Tasks[i] == nil {
 			w.Tasks[i] = t
-			found = true
+			return true
 		}
 	}
+	return false
 }
