@@ -7,6 +7,7 @@ Features:
 
  - Retries
  - Per-dispatch timeouts
+ - Job timeouts
 
 To enqueue some data:
 
@@ -23,10 +24,3 @@ To mark task completion and failure, resp:
 
     $ curl localhost:8080/done/:id
     $ curl localhost:8080/fail/:id
-
-
-### todo
-
- - [ ] job timeouts
- - [x] use more efficient waiters list
- - [ ] clean up code

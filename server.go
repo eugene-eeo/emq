@@ -38,52 +38,48 @@ func (s *server) enqueueTask(t *Task) {
 	s.waiters.Update(s.queues)
 }
 
-func (s *server) hello() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		enc := json.NewEncoder(w)
-		enc.Encode(s.version)
-	})
+func (s *server) hello(w http.ResponseWriter, r *http.Request) {
+	enc := json.NewEncoder(w)
+	enc.Encode(s.version)
 }
 
-func (s *server) enqueue() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tc := &TaskConfig{}
-		queueName := r.URL.Path[len("/enqueue/"):]
-		if len(queueName) == 0 {
-			http.Error(w, http.StatusText(404), 404)
-			return
-		}
+func (s *server) enqueue(w http.ResponseWriter, r *http.Request) {
+	tc := &TaskConfig{}
+	queueName := r.URL.Path[len("/enqueue/"):]
+	if len(queueName) == 0 {
+		http.Error(w, http.StatusText(404), 404)
+		return
+	}
 
-		dec := json.NewDecoder(r.Body)
-		if err := dec.Decode(tc); err != nil {
-			http.Error(w, err.Error(), 422)
-			return
-		}
+	dec := json.NewDecoder(r.Body)
+	if err := dec.Decode(tc); err != nil {
+		http.Error(w, err.Error(), 422)
+		return
+	}
 
-		if err := tc.Fill(); err != nil {
-			http.Error(w, err.Error(), 422)
-			return
-		}
+	if err := tc.Fill(); err != nil {
+		http.Error(w, err.Error(), 422)
+		return
+	}
 
-		s.mu.Lock()
-		defer s.mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-		if s.tasksById[tc.Id] != nil {
-			http.Error(w, "Task already enqueued", 401)
-			return
-		}
+	if s.tasksById[tc.Id] != nil {
+		http.Error(w, "Task already enqueued", 401)
+		return
+	}
 
-		s.uid++
-		task := NewTaskFromConfig(tc, queueName)
-		task.Uid = TaskUid(s.uid)
-		s.enqueueTask(task)
-		if task.Expiry > 0 {
-			s.context.Add(TaskInfo{task.Uid, StatusExpired}, task.Expiry)
-		}
+	s.uid++
+	task := NewTaskFromConfig(tc, queueName)
+	task.Uid = TaskUid(s.uid)
+	s.enqueueTask(task)
+	if task.Expiry > 0 {
+		s.context.Add(TaskInfo{task.Uid, StatusExpired}, task.Expiry)
+	}
 
-		enc := json.NewEncoder(w)
-		enc.Encode(map[string]string{"id": task.Id})
-	})
+	enc := json.NewEncoder(w)
+	enc.Encode(map[string]string{"id": task.Id})
 }
 
 func (s *server) waitForWaiter(w *Waiter) {
@@ -107,104 +103,91 @@ func (s *server) waitForWaiter(w *Waiter) {
 	}
 }
 
-func (s *server) addWaiter() http.HandlerFunc {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		dec := json.NewDecoder(r.Body)
-		enc := json.NewEncoder(w)
-		wc := WaitConfigJson{}
+func (s *server) addWaiter(w http.ResponseWriter, r *http.Request) {
+	dec := json.NewDecoder(r.Body)
+	enc := json.NewEncoder(w)
+	wc := WaitConfigJson{}
 
-		err := dec.Decode(&wc)
-		if err != nil {
-			http.Error(w, http.StatusText(422), 422)
-			return
-		}
+	err := dec.Decode(&wc)
+	if err != nil {
+		http.Error(w, http.StatusText(422), 422)
+		return
+	}
 
+	waiter := NewWaiterFromConfig(&wc)
+
+	// Fast case
+	if waiter.Timeout == 0 {
 		s.mu.Lock()
-		waiter := NewWaiterFromConfig(&wc)
+		waiter.Consume(s.queues)
+		s.mu.Unlock()
+	} else {
+		s.mu.Lock()
 		s.waiters.AddWaiter(waiter)
 		s.waiters.Update(s.queues)
 		s.mu.Unlock()
-
+		// Wait happens here!
 		s.waitForWaiter(waiter)
+	}
 
-		s.mu.Lock()
-		for _, task := range waiter.Tasks {
-			if task != nil && task.JobDuration > 0 {
-				// Add timers if necessary
-				s.context.Add(TaskInfo{task.Uid, StatusTimeout}, task.JobDuration)
-			}
+	s.mu.Lock()
+	for _, task := range waiter.Tasks {
+		if task != nil && task.JobDuration > 0 {
+			// Add timers if necessary
+			s.context.Add(TaskInfo{task.Uid, StatusTimeout}, task.JobDuration)
 		}
-		log.Print("Waiter finished")
-		enc.Encode(waiter.Tasks)
-		s.mu.Unlock()
-	})
+	}
+	log.Print("Waiter finished")
+	enc.Encode(waiter.Tasks)
+	s.mu.Unlock()
 }
 
-func (s *server) done() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		taskId := r.URL.Path[len("/done/"):]
-		if len(taskId) == 0 {
-			http.Error(w, http.StatusText(422), 422)
-			return
-		}
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		t := s.tasksById[taskId]
-		if t != nil {
-			go func() { s.dispatched <- TaskInfo{t.Uid, StatusOk} }()
-		}
-	})
+func (s *server) done(w http.ResponseWriter, r *http.Request) {
+	taskId := r.URL.Path[len("/done/"):]
+	if len(taskId) == 0 {
+		http.Error(w, http.StatusText(422), 422)
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t := s.tasksById[taskId]
+	if t != nil {
+		go func() { s.dispatched <- TaskInfo{t.Uid, StatusOk} }()
+	}
 }
 
-func (s *server) fail() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		taskId := r.URL.Path[len("/fail/"):]
-		if len(taskId) == 0 {
-			http.Error(w, http.StatusText(422), 422)
-			return
-		}
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		t := s.tasksById[taskId]
-		if t != nil {
-			go func() { s.dispatched <- TaskInfo{t.Uid, StatusFail} }()
-		}
-	})
+func (s *server) fail(w http.ResponseWriter, r *http.Request) {
+	taskId := r.URL.Path[len("/fail/"):]
+	if len(taskId) == 0 {
+		http.Error(w, http.StatusText(422), 422)
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t := s.tasksById[taskId]
+	if t != nil {
+		go func() { s.dispatched <- TaskInfo{t.Uid, StatusFail} }()
+	}
 }
 
 func (s *server) handleTaskInfo(ti TaskInfo) {
 	uid := ti.uid
 	t := s.tasks[uid]
-	switch ti.status {
-	case StatusOk:
-		if t != nil {
-			delete(s.tasksById, t.Id)
-			delete(s.tasks, uid)
-			log.Printf("Removed %s (OK)", t.Id)
-		}
-	case StatusExpired:
-		if t != nil {
-			delete(s.tasksById, t.Id)
-			delete(s.tasks, uid)
-			log.Printf("Removed %s (Expired)", t.Id)
-		}
-	case StatusTimeout:
-		fallthrough
-	case StatusFail:
-		// Already timed out somewhere
-		if t == nil {
-			return
-		}
+	if t == nil {
+		return
+	}
+	if ti.status == StatusTimeout || ti.status == StatusFail {
 		t.Retries--
 		if t.Retries >= 0 {
 			s.enqueueTask(t)
 			log.Printf("Requeue %s", t.Id)
-		} else {
-			delete(s.tasksById, t.Id)
-			delete(s.tasks, uid)
-			log.Printf("Removed %s (Fail)", t.Id)
+			// Don't delete
+			return
 		}
 	}
+	delete(s.tasksById, t.Id)
+	delete(s.tasks, uid)
+	log.Printf("Removed %s", t.Id)
 }
 
 func (s *server) listenDispatched() {
@@ -226,19 +209,19 @@ func (s *server) listenDispatched() {
 }
 
 func (s *server) routes() {
-	s.router.Handle("/fail/", Chain(s.fail(), logRequest, enforceMethod("POST")))
-	s.router.Handle("/done/", Chain(s.done(), logRequest, enforceMethod("POST")))
+	s.router.Handle("/fail/", Chain(s.fail, logRequest, enforceMethod("POST")))
+	s.router.Handle("/done/", Chain(s.done, logRequest, enforceMethod("POST")))
 	s.router.Handle("/wait/", Chain(
-		s.addWaiter(),
+		s.addWaiter,
 		logRequest,
 		enforceMethod("POST"),
 		enforceJSONHandler,
 	))
 	s.router.Handle("/enqueue/", Chain(
-		s.enqueue(),
+		s.enqueue,
 		logRequest,
 		enforceMethod("POST"),
 		enforceJSONHandler,
 	))
-	s.router.Handle("/", Chain(s.hello(), logRequest))
+	s.router.Handle("/", Chain(s.hello, logRequest))
 }

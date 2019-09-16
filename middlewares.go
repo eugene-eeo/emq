@@ -38,11 +38,11 @@ func enforceMethod(method string) func(http.Handler) http.Handler {
 
 type Middleware func(http.Handler) http.Handler
 
-func Chain(h http.Handler, m ...Middleware) http.Handler {
+func Chain(h http.HandlerFunc, m ...Middleware) http.Handler {
 	if len(m) < 1 {
 		return h
 	}
-	wrapped := h
+	wrapped := http.Handler(h)
 	// loop in reverse to preserve middleware order
 	for i := len(m) - 1; i >= 0; i-- {
 		wrapped = m[i](wrapped)
