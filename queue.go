@@ -2,7 +2,7 @@ package main
 
 import "log"
 
-const MAX_QUEUE_SIZE int = 1024
+const MAX_QUEUE_SIZE int = 1025
 
 type Queue struct {
 	Name  string

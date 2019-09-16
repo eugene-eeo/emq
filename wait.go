@@ -1,5 +1,7 @@
 package main
 
+import "time"
+
 type Waiters struct {
 	head *Waiter
 	tail *Waiter
@@ -10,44 +12,60 @@ func (ws *Waiters) AddWaiter(w *Waiter) {
 		ws.head = w
 		ws.tail = w
 	} else {
+		w.Prev = ws.tail
 		ws.tail.Next = w
 		ws.tail = w
 	}
 }
 
+func (ws *Waiters) Remove(w *Waiter) (*Waiter, *Waiter) {
+	prev := w.Prev
+	next := w.Next
+	if prev != nil {
+		prev.Next = next
+	} else {
+		ws.head = next
+	}
+	if next != nil {
+		next.Prev = prev
+	} else {
+		ws.tail = prev
+	}
+	// Clear for GC
+	w.Next = nil
+	w.Prev = nil
+	return prev, next
+}
+
 func (ws *Waiters) Update(queues map[string]*Queue) {
-	var prev *Waiter = nil
 	curr := ws.head
 	for curr != nil {
-		if curr.IsReady(queues) {
-			if prev != nil {
-				prev.Next = curr.Next
-			} else {
-				ws.head = curr.Next
-			}
-			if curr == ws.tail {
-				ws.tail = nil
-			}
+		ready := curr.IsReady(queues)
+		if ready {
+			_, next := ws.Remove(curr)
 			curr.Consume(queues)
 			curr.EmitReady()
+			curr = next
+		} else {
+			curr = curr.Next
 		}
-		// Advance
-		prev = curr
-		curr = curr.Next
 	}
 }
 
 type WaitConfigJson struct {
-	NoWait bool     `json:"no_wait"`
-	Queues []string `json:"queues"`
+	NoWait  bool     `json:"no_wait"`
+	Queues  []string `json:"queues"`
+	Timeout int      `json:"timeout"` // Timeout in seconds
 }
 
 type Waiter struct {
-	NoWait bool
-	Queues []string
-	Tasks  []*Task
-	Ready  chan bool
-	Next   *Waiter
+	NoWait   bool
+	Queues   []string
+	Tasks    []*Task
+	Ready    chan bool
+	Prev     *Waiter
+	Next     *Waiter
+	Deadline time.Time
 }
 
 func NewWaiterFromConfig(wc *WaitConfigJson) *Waiter {

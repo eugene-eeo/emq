@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"sync"
 )
@@ -101,6 +102,7 @@ func (s *server) addWaiter() http.HandlerFunc {
 				s.dispatched.Track(task)
 			}
 		}
+		log.Print("Waiter finished")
 		enc.Encode(waiter.Tasks)
 		s.mu.Unlock()
 	})
@@ -139,12 +141,17 @@ func (s *server) listenDispatched() {
 		switch taskInfo.status {
 		case StatusOk:
 			delete(s.tasks, t.Id)
+			log.Printf("Removed %s (OK)", t.Id)
 		case StatusFail:
-			t.Retries--
-			if t.Retries >= 0 {
-				s.enqueueTask(t)
-			} else {
-				delete(s.tasks, t.Id)
+			if s.tasks[t.Id] != nil {
+				t.Retries--
+				if t.Retries >= 0 {
+					s.enqueueTask(t)
+					log.Printf("Requeue %s", t.Id)
+				} else {
+					delete(s.tasks, t.Id)
+					log.Printf("Removed %s (Fail)", t.Id)
+				}
 			}
 		}
 		s.dispatched.Untrack(t)
