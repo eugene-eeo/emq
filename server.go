@@ -142,31 +142,22 @@ func (s *server) addWaiter(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 }
 
-func (s *server) done(w http.ResponseWriter, r *http.Request) {
-	taskId := r.URL.Path[len("/done/"):]
-	if len(taskId) == 0 {
-		http.Error(w, http.StatusText(422), 422)
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	t := s.tasksById[taskId]
-	if t != nil {
-		go func() { s.dispatched <- TaskInfo{t.Uid, StatusOk} }()
-	}
-}
-
-func (s *server) fail(w http.ResponseWriter, r *http.Request) {
-	taskId := r.URL.Path[len("/fail/"):]
-	if len(taskId) == 0 {
-		http.Error(w, http.StatusText(422), 422)
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	t := s.tasksById[taskId]
-	if t != nil {
-		go func() { s.dispatched <- TaskInfo{t.Uid, StatusFail} }()
+func (s *server) makeTaskUpdater(prefix string, status TaskStatus) http.HandlerFunc {
+	size := len(prefix)
+	return func(w http.ResponseWriter, r *http.Request) {
+		taskId := r.URL.Path[size:]
+		if len(taskId) == 0 {
+			http.Error(w, http.StatusText(422), 422)
+			return
+		}
+		s.mu.Lock()
+		t := s.tasksById[taskId]
+		s.mu.Unlock()
+		if t != nil {
+			s.dispatched <- TaskInfo{t.Uid, status}
+		} else {
+			http.Error(w, http.StatusText(404), 404)
+		}
 	}
 }
 
@@ -208,8 +199,8 @@ func (s *server) listenDispatched() {
 }
 
 func (s *server) routes() {
-	s.router.Handle("/fail/", Chain(s.fail, logRequest, enforceMethod("POST")))
-	s.router.Handle("/done/", Chain(s.done, logRequest, enforceMethod("POST")))
+	s.router.Handle("/fail/", Chain(s.makeTaskUpdater("/fail/", StatusFail), logRequest, enforceMethod("POST")))
+	s.router.Handle("/done/", Chain(s.makeTaskUpdater("/fail/", StatusOk), logRequest, enforceMethod("POST")))
 	s.router.Handle("/wait/", Chain(
 		s.addWaiter,
 		logRequest,
