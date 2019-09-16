@@ -14,11 +14,11 @@ type server struct {
 	mu         sync.Mutex
 	dispatched chan TaskInfo
 	waiters    *Waiters
-	tasksById  map[uuid.UUID]*Task
+	tasks      map[uuid.UUID]*Task
 	queues     map[string]*Queue
 	router     *http.ServeMux
-	version    Version
 	context    *tctx2.Context
+	version    Version
 }
 
 func (s *server) getQueue(name string) *Queue {
@@ -31,7 +31,7 @@ func (s *server) getQueue(name string) *Queue {
 }
 
 func (s *server) enqueueTask(t *Task) {
-	s.tasksById[t.Id] = t
+	s.tasks[t.Id] = t
 	s.getQueue(t.QueueName).Enqueue(t)
 	s.waiters.Update(s.queues)
 }
@@ -64,7 +64,7 @@ func (s *server) enqueue(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 422)
 			return
 		}
-		if s.tasksById[id] == nil {
+		if s.tasks[id] == nil {
 			break
 		}
 		id, err = uuid.NewV4()
@@ -134,7 +134,6 @@ func (s *server) addWaiter(w http.ResponseWriter, r *http.Request) {
 			s.context.Add(TaskInfo{task.Id, StatusTimeout}, task.JobDuration)
 		}
 	}
-	log.Print("Waiter finished")
 	enc.Encode(waiter.Tasks)
 	s.mu.Unlock()
 }
@@ -153,7 +152,7 @@ func (s *server) makeTaskUpdater(prefix string, status TaskStatus) http.HandlerF
 }
 
 func (s *server) handleTaskInfo(ti TaskInfo) {
-	t := s.tasksById[ti.id]
+	t := s.tasks[ti.id]
 	if t == nil {
 		return
 	}
@@ -166,7 +165,7 @@ func (s *server) handleTaskInfo(ti TaskInfo) {
 			return
 		}
 	}
-	delete(s.tasksById, t.Id)
+	delete(s.tasks, t.Id)
 	log.Printf("Removed %s", t.Id)
 }
 
