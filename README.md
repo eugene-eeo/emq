@@ -9,6 +9,13 @@ Features:
  - Per-dispatch timeouts
  - Job timeouts
 
+## Running
+
+```sh
+$ go install github.com/eugene-eeo/emq
+$ emq --addr ':8080'
+```
+
 ## Endpoints
 
 ### `POST /enqueue/<queue-name>`

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"github.com/eugene-eeo/emq/tctx2"
 	"github.com/satori/go.uuid"
 	"log"
@@ -8,6 +9,9 @@ import (
 )
 
 func main() {
+	addr := flag.String("addr", ":8080", "TCP listening address")
+	flag.Parse()
+
 	mux := http.NewServeMux()
 	srv := &server{
 		tasks:      map[uuid.UUID]*QueueNode{},
@@ -20,5 +24,5 @@ func main() {
 	}
 	srv.routes()
 	go srv.listenDispatched()
-	log.Fatal(http.ListenAndServe(":8080", mux))
+	log.Fatal(http.ListenAndServe(*addr, mux))
 }
