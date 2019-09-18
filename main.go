@@ -10,7 +10,7 @@ import (
 func main() {
 	mux := http.NewServeMux()
 	srv := &server{
-		tasks:      map[uuid.UUID]*Task{},
+		tasks:      map[uuid.UUID]*QueueNode{},
 		queues:     map[string]*Queue{},
 		router:     mux,
 		waiters:    &Waiters{},
