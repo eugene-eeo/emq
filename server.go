@@ -73,11 +73,11 @@ func (s *server) enqueue(w http.ResponseWriter, r *http.Request) {
 	task.Id = id
 	s.enqueueTask(task)
 	if task.Expiry > 0 {
-		s.context.Add(TaskInfo{task.Id, StatusExpired}, task.Expiry)
+		s.context.Add(TaskInfo{id, StatusExpired}, task.Expiry)
 	}
 
 	enc := json.NewEncoder(w)
-	enc.Encode(task.Id)
+	enc.Encode(TaskId{Id: id})
 }
 
 func (s *server) waitForWaiter(w *Waiter) {

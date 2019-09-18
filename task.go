@@ -23,6 +23,10 @@ type Task struct {
 	Expiry      time.Duration `json:"-"`
 }
 
+type TaskId struct {
+	Id uuid.UUID `json:"id"`
+}
+
 type TaskConfig struct {
 	Id          uuid.UUID   `json:"-"`
 	Content     interface{} `json:"content"`
