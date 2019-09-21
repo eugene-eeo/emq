@@ -14,7 +14,7 @@ type server struct {
 	mu         sync.Mutex
 	dispatched chan TaskInfo
 	waiters    *Waiters
-	tasks      map[uuid.UUID]*QueueNode
+	tasks      map[uuid.UUID]*Task
 	queues     map[string]*Queue
 	router     *http.ServeMux
 	context    *tctx2.Context
@@ -31,7 +31,8 @@ func (s *server) getQueue(name string) *Queue {
 }
 
 func (s *server) enqueueTask(t *Task) {
-	s.tasks[t.Id] = s.getQueue(t.QueueName).Enqueue(t)
+	s.getQueue(t.QueueName).Enqueue(t)
+	s.tasks[t.Id] = t
 	s.waiters.Update(s.queues)
 }
 
@@ -156,17 +157,17 @@ func (s *server) handleTaskInfo(ti TaskInfo) {
 		return
 	}
 	if ti.status == StatusTimeout || ti.status == StatusFail {
-		t.task.Retries--
-		if t.task.Retries >= 0 {
-			s.enqueueTask(t.task)
-			log.Printf("Requeue %s", t.task.Id)
+		t.Retries--
+		if t.Retries >= 0 {
+			s.enqueueTask(t)
+			log.Printf("Requeue %s", t.Id)
 			// Don't delete
 			return
 		}
 	}
-	delete(s.tasks, t.task.Id)
-	s.getQueue(t.task.QueueName).Remove(t)
-	log.Printf("Removed %s", t.task.Id)
+	delete(s.tasks, t.Id)
+	s.getQueue(t.QueueName).Remove(t)
+	log.Printf("Removed %s", t.Id)
 }
 
 func (s *server) listenDispatched() {

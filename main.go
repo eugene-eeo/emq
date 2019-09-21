@@ -14,7 +14,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	srv := &server{
-		tasks:      map[uuid.UUID]*QueueNode{},
+		tasks:      map[uuid.UUID]*Task{},
 		queues:     map[string]*Queue{},
 		router:     mux,
 		waiters:    &Waiters{},

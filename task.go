@@ -21,6 +21,8 @@ type Task struct {
 	Retries     int           `json:"retries"`
 	JobDuration time.Duration `json:"-"`
 	Expiry      time.Duration `json:"-"`
+	prev        *Task         `json:"-"`
+	next        *Task         `json:"-"`
 }
 
 type TaskId struct {

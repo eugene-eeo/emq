@@ -2,16 +2,10 @@ package main
 
 const MAX_QUEUE_SIZE int = 1025
 
-type QueueNode struct {
-	task *Task
-	prev *QueueNode
-	next *QueueNode
-}
-
 type Queue struct {
 	Name  string
-	head  *QueueNode
-	tail  *QueueNode
+	head  *Task
+	tail  *Task
 	count int
 }
 
@@ -19,25 +13,21 @@ func NewQueue(name string) *Queue {
 	return &Queue{Name: name}
 }
 
-func (q *Queue) Enqueue(t *Task) *QueueNode {
+func (q *Queue) Enqueue(t *Task) {
 	q.count++
-	qn := &QueueNode{
-		task: t,
-		prev: q.tail,
-	}
+	t.prev = q.tail
 	if q.tail == nil {
-		q.head = qn
-		q.tail = qn
+		q.head = t
+		q.tail = t
 	} else {
-		q.tail.next = qn
-		q.tail = qn
+		q.tail.next = t
+		q.tail = t
 	}
-	return qn
 }
 
-func (q *Queue) Remove(qn *QueueNode) {
-	prev := qn.prev
-	next := qn.next
+func (q *Queue) Remove(t *Task) {
+	prev := t.prev
+	next := t.next
 	if prev != nil {
 		prev.next = next
 	} else {
@@ -49,8 +39,8 @@ func (q *Queue) Remove(qn *QueueNode) {
 		q.tail = prev
 	}
 	// Clear for GC
-	qn.next = nil
-	qn.prev = nil
+	t.next = nil
+	t.prev = nil
 }
 
 func (q *Queue) Dequeue() *Task {
@@ -59,5 +49,5 @@ func (q *Queue) Dequeue() *Task {
 		return nil
 	}
 	q.Remove(head)
-	return head.task
+	return head
 }
