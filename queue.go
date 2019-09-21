@@ -1,7 +1,5 @@
 package main
 
-const MAX_QUEUE_SIZE int = 1025
-
 type Queue struct {
 	Name  string
 	head  *Task
@@ -41,6 +39,7 @@ func (q *Queue) Remove(t *Task) {
 	// Clear for GC
 	t.next = nil
 	t.prev = nil
+	q.count--
 }
 
 func (q *Queue) Dequeue() *Task {
