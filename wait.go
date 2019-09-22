@@ -74,7 +74,6 @@ func NewWaiterFromConfig(wc *WaitConfigJson) *Waiter {
 }
 
 func (w *Waiter) EmitReady() {
-	w.Done = true
 	w.Ready <- true
 	close(w.Ready)
 }
@@ -94,6 +93,7 @@ func (w *Waiter) IsReady(queues map[string]*Queue) bool {
 }
 
 func (w *Waiter) Consume(queues map[string]*Queue) {
+	w.Done = true
 	for i, name := range w.Queues {
 		q := queues[name]
 		if q != nil {

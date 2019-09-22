@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"github.com/eugene-eeo/emq/tctx2"
-	"github.com/satori/go.uuid"
 	"log"
 	"net/http"
 )
@@ -14,7 +13,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	srv := &server{
-		tasks:      map[uuid.UUID]*Task{},
+		tasks:      map[TaskUid]*Task{},
 		queues:     map[string]*Queue{},
 		router:     mux,
 		waiters:    &Waiters{},

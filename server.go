@@ -14,7 +14,7 @@ type server struct {
 	mu         sync.Mutex
 	dispatched chan TaskInfo
 	waiters    *Waiters
-	tasks      map[uuid.UUID]*Task
+	tasks      map[TaskUid]*Task
 	queues     map[string]*Queue
 	router     *http.ServeMux
 	context    *tctx2.Context
@@ -58,8 +58,10 @@ func (s *server) enqueue(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	id, err := uuid.NewV4()
+	var id uuid.UUID
+	var err error
 	for {
+		id, err = uuid.NewV4()
 		if err != nil {
 			http.Error(w, err.Error(), 422)
 			return
@@ -67,7 +69,6 @@ func (s *server) enqueue(w http.ResponseWriter, r *http.Request) {
 		if s.tasks[id] == nil {
 			break
 		}
-		id, err = uuid.NewV4()
 	}
 
 	task := NewTaskFromConfig(tc, s.getQueue(queueName))
@@ -76,9 +77,6 @@ func (s *server) enqueue(w http.ResponseWriter, r *http.Request) {
 	if task.Expiry > 0 {
 		s.context.Add(TaskInfo{id, StatusExpired}, task.Expiry)
 	}
-
-	enc := json.NewEncoder(w)
-	enc.Encode(TaskId{Id: id})
 }
 
 func (s *server) waitForWaiter(w *Waiter) {
