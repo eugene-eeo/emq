@@ -24,14 +24,14 @@ type server struct {
 func (s *server) getQueue(name string) *Queue {
 	q, ok := s.queues[name]
 	if !ok {
-		q = NewQueue(name)
+		q = NewQueue()
 		s.queues[name] = q
 	}
 	return q
 }
 
 func (s *server) enqueueTask(t *Task) {
-	s.getQueue(t.QueueName).Enqueue(t)
+	t.Queue.Enqueue(t)
 	s.tasks[t.Id] = t
 	s.waiters.Update(s.queues)
 }
@@ -70,7 +70,7 @@ func (s *server) enqueue(w http.ResponseWriter, r *http.Request) {
 		id, err = uuid.NewV4()
 	}
 
-	task := NewTaskFromConfig(tc, queueName)
+	task := NewTaskFromConfig(tc, s.getQueue(queueName))
 	task.Id = id
 	s.enqueueTask(task)
 	if task.Expiry > 0 {
@@ -166,7 +166,7 @@ func (s *server) handleTaskInfo(ti TaskInfo) {
 		}
 	}
 	delete(s.tasks, t.Id)
-	s.getQueue(t.QueueName).Remove(t)
+	t.Queue.Remove(t)
 	log.Printf("Removed %s", t.Id)
 }
 
@@ -191,12 +191,10 @@ func (s *server) listenDispatched() {
 func (s *server) routes() {
 	s.router.Handle("/fail/", Chain(s.makeTaskUpdater("/fail/", StatusFail), logRequest, enforceMethod("POST")))
 	s.router.Handle("/done/", Chain(s.makeTaskUpdater("/fail/", StatusDone), logRequest, enforceMethod("POST")))
-	s.router.Handle("/wait/", Chain(
-		s.addWaiter,
+	s.router.Handle("/wait/", Chain(s.addWaiter,
 		logRequest,
 		enforceMethod("POST"),
-		enforceJSONHandler,
-	))
+		enforceJSONHandler))
 	s.router.Handle("/enqueue/", Chain(
 		s.enqueue,
 		logRequest,

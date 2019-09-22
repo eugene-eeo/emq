@@ -16,7 +16,7 @@ const (
 
 type Task struct {
 	Id          uuid.UUID     `json:"id"`
-	QueueName   string        `json:"-"`
+	Queue       *Queue        `json:"-"`
 	Content     interface{}   `json:"content"`
 	Retries     int           `json:"retries"`
 	JobDuration time.Duration `json:"-"`
@@ -37,10 +37,10 @@ type TaskConfig struct {
 	Expiry      int         `json:"expiry"`       // Job duration in seconds
 }
 
-func NewTaskFromConfig(tc *TaskConfig, queueName string) *Task {
+func NewTaskFromConfig(tc *TaskConfig, queue *Queue) *Task {
 	return &Task{
 		Id:          tc.Id,
-		QueueName:   queueName,
+		Queue:       queue,
 		Content:     tc.Content,
 		Retries:     tc.Retries,
 		JobDuration: time.Duration(tc.JobDuration) * time.Second,

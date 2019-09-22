@@ -1,14 +1,13 @@
 package main
 
 type Queue struct {
-	Name  string
 	head  *Task
 	tail  *Task
 	count int
 }
 
-func NewQueue(name string) *Queue {
-	return &Queue{Name: name}
+func NewQueue() *Queue {
+	return &Queue{}
 }
 
 func (q *Queue) Enqueue(t *Task) {
