@@ -21,6 +21,7 @@ type Task struct {
 	Queue       *Queue        `json:"-"`
 	Content     interface{}   `json:"content"`
 	Retries     int           `json:"retries"`
+	Received    time.Time     `json:"received"`
 	JobDuration time.Duration `json:"-"`
 	Expiry      time.Duration `json:"-"`
 	prev        *Task         `json:"-"`
@@ -41,6 +42,7 @@ func NewTaskFromConfig(tc *TaskConfig, queue *Queue) *Task {
 		Queue:       queue,
 		Content:     tc.Content,
 		Retries:     tc.Retries,
+		Received:    time.Now().UTC(),
 		JobDuration: time.Duration(tc.JobDuration) * time.Second,
 		Expiry:      time.Duration(tc.Expiry) * time.Second,
 	}
