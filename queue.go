@@ -43,9 +43,8 @@ func (q *Queue) Remove(t *Task) {
 
 func (q *Queue) Dequeue() *Task {
 	head := q.head
-	if head == nil {
-		return nil
+	if head != nil {
+		q.Remove(head)
 	}
-	q.Remove(head)
 	return head
 }

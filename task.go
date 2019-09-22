@@ -31,8 +31,8 @@ type TaskConfig struct {
 	Id          TaskUid     `json:"-"`
 	Content     interface{} `json:"content"`
 	Retries     int         `json:"retries"`
-	JobDuration int         `json:"job_duration"` // Job duration in seconds
-	Expiry      int         `json:"expiry"`       // Job duration in seconds
+	JobDuration int         `json:"job_duration"`
+	Expiry      int         `json:"expiry"`
 }
 
 func NewTaskFromConfig(tc *TaskConfig, queue *Queue) *Task {
