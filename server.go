@@ -14,7 +14,7 @@ type server struct {
 	mu         sync.Mutex
 	dispatched chan TaskInfo
 	waiters    *Waiters
-	tasks      map[TaskUid]*Task
+	tasks      map[TaskId]*Task
 	queues     map[string]*Queue
 	router     *http.ServeMux
 	context    *tctx2.Context

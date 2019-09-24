@@ -14,10 +14,10 @@ const (
 	StatusExpired
 )
 
-type TaskUid = uuid.UUID
+type TaskId = uuid.UUID
 
 type Task struct {
-	Id          TaskUid       `json:"id"`
+	Id          TaskId        `json:"id"`
 	Queue       *Queue        `json:"-"`
 	Content     interface{}   `json:"content"`
 	Retries     int           `json:"retries"`
@@ -29,7 +29,7 @@ type Task struct {
 }
 
 type TaskConfig struct {
-	Id          TaskUid     `json:"-"`
+	Id          TaskId      `json:"-"`
 	Content     interface{} `json:"content"`
 	Retries     int         `json:"retries"`
 	JobDuration int         `json:"job_duration"`
@@ -49,6 +49,6 @@ func NewTaskFromConfig(tc *TaskConfig, queue *Queue) *Task {
 }
 
 type TaskInfo struct {
-	id     TaskUid
+	id     TaskId
 	status TaskStatus
 }
