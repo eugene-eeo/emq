@@ -157,11 +157,11 @@ func (s *server) handleTaskInfo(ti TaskInfo) {
 	if t == nil {
 		return
 	}
-	if !t.dispatched {
-		return
-	}
-	t.dispatched = false
 	if ti.status == StatusTimeout || ti.status == StatusFail {
+		if !t.dispatched {
+			return
+		}
+		t.dispatched = false
 		t.Retries--
 		if t.Retries >= 0 {
 			s.enqueueTask(t)
