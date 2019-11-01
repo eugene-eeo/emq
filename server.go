@@ -127,9 +127,12 @@ func (s *server) addWaiter(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, task := range waiter.Tasks {
-		if task != nil && task.JobDuration > 0 {
-			// Add timers if necessary
-			s.context.Add(TaskInfo{task.Id, StatusTimeout}, task.JobDuration)
+		if task != nil {
+			task.dispatched = true
+			if task.JobDuration > 0 {
+				// Add timers if necessary
+				s.context.Add(TaskInfo{task.Id, StatusTimeout}, task.JobDuration)
+			}
 		}
 	}
 	enc.Encode(waiter.Tasks)
@@ -154,6 +157,10 @@ func (s *server) handleTaskInfo(ti TaskInfo) {
 	if t == nil {
 		return
 	}
+	if !t.dispatched {
+		return
+	}
+	t.dispatched = false
 	if ti.status == StatusTimeout || ti.status == StatusFail {
 		t.Retries--
 		if t.Retries >= 0 {
@@ -172,12 +179,9 @@ func (s *server) listenDispatched() {
 	for {
 		select {
 		case obj := <-s.context.C:
-			switch obj.(type) {
-			case TaskInfo:
-				s.mu.Lock()
-				s.handleTaskInfo(obj.(TaskInfo))
-				s.mu.Unlock()
-			}
+			s.mu.Lock()
+			s.handleTaskInfo(obj.(TaskInfo))
+			s.mu.Unlock()
 		case taskInfo := <-s.dispatched:
 			s.mu.Lock()
 			s.handleTaskInfo(taskInfo)

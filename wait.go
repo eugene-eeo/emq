@@ -39,13 +39,12 @@ func (ws *Waiters) Remove(w *Waiter) {
 func (ws *Waiters) Update(queues map[string]*Queue) {
 	curr := ws.head
 	for curr != nil {
-		next := curr.Next
 		if curr.IsReady(queues) {
 			ws.Remove(curr)
 			curr.Consume(queues)
 			curr.EmitReady()
 		}
-		curr = next
+		curr = curr.Next
 	}
 }
 

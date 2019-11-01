@@ -26,6 +26,7 @@ type Task struct {
 	Expiry      time.Duration `json:"-"`
 	prev        *Task         `json:"-"`
 	next        *Task         `json:"-"`
+	dispatched  bool
 }
 
 type TaskConfig struct {
