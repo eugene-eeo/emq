@@ -72,12 +72,12 @@ It may contain nulls where queues are not ready (have no tasks).
 By definition, nulls will only appear when the waiter has timed
 out or a timeout of 0 was specified.
 
-### `POST /ack/:id`
+### `POST /ack/<id>`
 
 Mark a task as completed.
 Also deletes it from the queue.
 
-### `POST /nak/:id`
+### `POST /nak/<id>`
 
 Mark a task as failed.
 Failed tasks may be retried many times before they expire.
