@@ -1,27 +1,21 @@
 package main
 
-import (
-	"flag"
-	"github.com/eugene-eeo/emq/tctx2"
-	"log"
-	"net/http"
-)
+import "log"
+import "flag"
+import "net/http"
+import "time"
 
 func main() {
-	addr := flag.String("addr", ":8080", "TCP listening address")
+	addr := flag.String("addr", "localhost:8080", "address to serve on")
+	freq := flag.Uint64("gc-freq", 5*60, "gc frequency (in seconds)")
+
 	flag.Parse()
 
-	mux := http.NewServeMux()
-	srv := &server{
-		tasks:      map[TaskId]*Task{},
-		queues:     map[string]*Queue{},
-		router:     mux,
-		waiters:    &Waiters{},
-		dispatched: make(chan TaskInfo),
-		context:    tctx2.NewContext(),
-		version:    Version{Version: "0.1.0-alpha"},
+	if *freq == 0 {
+		log.Fatal("invalid frequency: ", *freq)
 	}
-	srv.routes()
-	go srv.listenDispatched()
-	log.Fatal(http.ListenAndServe(*addr, mux))
+
+	s := NewServer(time.Duration(*freq) * time.Second)
+	go s.Loop()
+	http.ListenAndServe(*addr, s.mux)
 }

@@ -1,207 +1,182 @@
 package main
 
-import (
-	"encoding/json"
-	"github.com/eugene-eeo/emq/tctx2"
-	"github.com/satori/go.uuid"
-	"log"
-	"net/http"
-	"sync"
-	"time"
-)
+import "time"
+import "sync"
+import "net/http"
+import "encoding/json"
+import "github.com/satori/go.uuid"
 
-type server struct {
-	mu         sync.Mutex
-	dispatched chan TaskInfo
-	waiters    *Waiters
-	tasks      map[TaskId]*Task
-	queues     map[string]*Queue
-	router     *http.ServeMux
-	context    *tctx2.Context
-	version    Version
+type Server struct {
+	sync.Mutex
+	mq     *MQ
+	ws     *Waiters
+	mux    *http.ServeMux
+	gcfreq time.Duration
 }
 
-func (s *server) getQueue(name string) *Queue {
-	q, ok := s.queues[name]
-	if !ok {
-		q = NewQueue()
-		s.queues[name] = q
+func NewServer(gcfreq time.Duration) *Server {
+	s := &Server{
+		mq:     NewMQ(),
+		ws:     NewWaiters(),
+		mux:    http.NewServeMux(),
+		gcfreq: gcfreq,
 	}
-	return q
-}
-
-func (s *server) enqueueTask(t *Task) {
-	t.Queue.Enqueue(t)
-	s.tasks[t.Id] = t
-	s.waiters.Update(s.queues)
-}
-
-func (s *server) hello(w http.ResponseWriter, r *http.Request) {
-	enc := json.NewEncoder(w)
-	enc.Encode(s.version)
-}
-
-func (s *server) enqueue(w http.ResponseWriter, r *http.Request) {
-	tc := &TaskConfig{}
-	queueName := r.URL.Path[len("/enqueue/"):]
-	if len(queueName) == 0 {
-		http.Error(w, http.StatusText(404), 404)
-		return
+	PostJSON := func(f http.HandlerFunc) http.Handler {
+		return Chain(f,
+			EnforceMethodMiddleware("POST"),
+			EnforceJSONMiddleware(),
+		)
 	}
+	s.mux.Handle("/enqueue/", PostJSON(s.Enqueue))
+	s.mux.Handle("/wait/", PostJSON(s.Wait))
+	s.mux.Handle("/ack/", PostJSON(s.FindDispatchedTaskHTTP("/ack/", func(t *Task) {
+		s.mq.DeleteTask(t)
+		go s.UpdateWaitSpecs()
+	})))
+	s.mux.Handle("/nak/", PostJSON(s.FindDispatchedTaskHTTP("/nak/", func(t *Task) {
+		s.mq.Failed(t)
+		go s.UpdateWaitSpecs()
+	})))
+	return s
+}
 
-	dec := json.NewDecoder(r.Body)
-	if err := dec.Decode(tc); err != nil {
-		http.Error(w, err.Error(), 422)
-		return
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	var id uuid.UUID
-	var err error
+func (s *Server) GetID() (uuid.UUID, error) {
 	for {
-		id, err = uuid.NewV4()
+		id, err := uuid.NewV4()
 		if err != nil {
-			http.Error(w, err.Error(), 422)
-			return
+			return id, err
 		}
-		if s.tasks[id] == nil {
-			break
+		if s.mq.Tasks[id] == nil {
+			return id, nil
 		}
-	}
-
-	task := NewTaskFromConfig(tc, s.getQueue(queueName))
-	task.Id = id
-	s.enqueueTask(task)
-	if task.Expiry > 0 {
-		s.context.Add(TaskInfo{id, StatusExpired}, task.Expiry)
 	}
 }
 
-func (s *server) waitForWaiter(w *Waiter) {
-	if w.Timeout < 0 {
-		<-w.Ready
-		return
-	}
-	timer := time.NewTimer(w.Timeout)
-	select {
-	case <-timer.C:
-		timer.Stop()
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		// If we haven't been consumed yet
-		if !w.Done {
-			w.Consume(s.queues)
-			s.waiters.Remove(w)
+func (s *Server) UpdateWaitSpecs() {
+	s.Lock()
+	defer s.Unlock()
+
+	now := time.Now()
+	s.mq.GC(now)
+	for w := s.ws.Head; w != nil; w = w.next {
+		tasks, ready := w.Ready(s.mq, now)
+		if ready {
+			s.Consume(tasks, now)
+			w.ready <- WaitDone{now, tasks}
 		}
-	case <-w.Ready:
-		timer.Stop()
 	}
 }
 
-func (s *server) addWaiter(w http.ResponseWriter, r *http.Request) {
-	dec := json.NewDecoder(r.Body)
-	enc := json.NewEncoder(w)
-	wc := WaitConfigJson{}
+func (s *Server) Consume(tasks []*Task, now time.Time) {
+	for _, t := range tasks {
+		if t != nil {
+			s.mq.Dispatch(t, now)
+		}
+	}
+}
 
-	err := dec.Decode(&wc)
+func (s *Server) Enqueue(w http.ResponseWriter, r *http.Request) {
+	// decode request
+	qn := r.URL.Path[len("/enqueue/"):]
+	tc := TaskConfig{}
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024*1024))
+	dec.DisallowUnknownFields()
+	err := dec.Decode(&tc)
 	if err != nil {
-		http.Error(w, http.StatusText(422), 422)
+		http.Error(w, http.StatusText(400), 400)
 		return
 	}
 
-	waiter := NewWaiterFromConfig(&wc)
+	s.Lock()
+	defer s.Unlock()
 
-	// Fast case
-	s.mu.Lock()
-	if waiter.Timeout == 0 {
-		waiter.Consume(s.queues)
-	} else {
-		s.waiters.AddWaiter(waiter)
-		s.waiters.Update(s.queues)
-		s.mu.Unlock()
-		// Wait happens here!
-		s.waitForWaiter(waiter)
-		s.mu.Lock()
-	}
-
-	for _, task := range waiter.Tasks {
-		if task != nil {
-			task.dispatched = true
-			if task.JobDuration > 0 {
-				// Add timers if necessary
-				s.context.Add(TaskInfo{task.Id, StatusTimeout}, task.JobDuration)
-			}
-		}
-	}
-	enc.Encode(waiter.Tasks)
-	s.mu.Unlock()
-}
-
-func (s *server) makeTaskUpdater(prefix string, status TaskStatus) http.HandlerFunc {
-	size := len(prefix)
-	return func(w http.ResponseWriter, r *http.Request) {
-		taskId := r.URL.Path[size:]
-		uid, err := uuid.FromString(taskId)
-		if err != nil {
-			http.Error(w, err.Error(), 422)
-			return
-		}
-		s.dispatched <- TaskInfo{uid, status}
-	}
-}
-
-func (s *server) handleTaskInfo(ti TaskInfo) {
-	t := s.tasks[ti.id]
-	if t == nil {
+	id, err := s.GetID()
+	if err != nil {
+		http.Error(w, err.Error(), 500)
 		return
 	}
-	if ti.status == StatusTimeout || ti.status == StatusFail {
-		if !t.dispatched {
-			return
-		}
-		t.dispatched = false
-		t.Retries--
-		if t.Retries >= 0 {
-			s.enqueueTask(t)
-			log.Printf("Requeue %s", t.Id)
-			// Don't delete
-			return
-		}
-	}
-	delete(s.tasks, t.Id)
-	t.Queue.Remove(t)
-	log.Printf("Removed %s", t.Id)
+
+	task := tc.ToTask(id)
+	s.mq.Add(qn, &task)
+	go s.UpdateWaitSpecs()
 }
 
-func (s *server) listenDispatched() {
+func (s *Server) GC(now time.Time) {
+	s.Lock()
+	defer s.Unlock()
+	s.mq.GC(now)
+}
+
+func (s *Server) Loop() {
 	for {
-		select {
-		case obj := <-s.context.C:
-			s.mu.Lock()
-			s.handleTaskInfo(obj.(TaskInfo))
-			s.mu.Unlock()
-		case taskInfo := <-s.dispatched:
-			s.mu.Lock()
-			s.handleTaskInfo(taskInfo)
-			s.mu.Unlock()
-		}
+		now := <-time.After(time.Duration(5) * time.Minute)
+		s.GC(now)
 	}
 }
 
-func (s *server) routes() {
-	s.router.Handle("/fail/", Chain(s.makeTaskUpdater("/fail/", StatusFail), logRequest, enforceMethod("POST")))
-	s.router.Handle("/done/", Chain(s.makeTaskUpdater("/fail/", StatusDone), logRequest, enforceMethod("POST")))
-	s.router.Handle("/wait/", Chain(s.addWaiter,
-		logRequest,
-		enforceMethod("POST"),
-		enforceJSONHandler))
-	s.router.Handle("/enqueue/", Chain(
-		s.enqueue,
-		logRequest,
-		enforceMethod("POST"),
-		enforceJSONHandler,
-	))
-	s.router.Handle("/", Chain(s.hello, logRequest))
+func (s *Server) Wait(w http.ResponseWriter, r *http.Request) {
+	wsc := WaitSpecConfig{}
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024*1024))
+	dec.DisallowUnknownFields()
+	err := dec.Decode(&wsc)
+	if err != nil {
+		http.Error(w, http.StatusText(400), 400)
+		return
+	}
+
+	var tasks []*Task
+	ws := wsc.ToWaitSpec()
+
+	if ws.Timeout == 0 {
+		s.Lock()
+		now := time.Now()
+		tasks = ws.Take(s.mq, now)
+		s.Consume(tasks, now)
+		s.Unlock()
+	} else {
+		s.Lock()
+		s.ws.Append(&ws)
+		s.Unlock()
+
+		go s.UpdateWaitSpecs()
+
+		select {
+		case wd := <-ws.ready:
+			tasks = wd.tasks
+		case now := <-time.After(ws.Timeout):
+			// timeout -- just claim what we can
+			s.Lock()
+			tasks = ws.Take(s.mq, now)
+			s.Consume(tasks, now)
+			s.Unlock()
+		}
+
+		s.Lock()
+		s.ws.Remove(&ws)
+		s.Unlock()
+	}
+
+	w.WriteHeader(200)
+	enc := json.NewEncoder(w)
+	enc.Encode(tasks)
+}
+
+func (s *Server) FindDispatchedTaskHTTP(url string, next func(t *Task)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.URL.Path[len(url):]
+		uid, err := uuid.FromString(id)
+		if err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		s.Lock()
+		defer s.Unlock()
+		now := time.Now()
+		task := s.mq.Find(uid, now)
+		if task == nil || !task.InDispatch(now) {
+			http.Error(w, http.StatusText(404), 404)
+			return
+		}
+		next(task)
+	}
 }

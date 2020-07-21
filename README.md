@@ -26,23 +26,18 @@ The POST request should include a JSON object in the body with the following sch
 ```js
 {
     "content": { /* Anything can go here */ },
-    "retries": 1,      // total # of retries before giving up
-    "job_duration": 1, // job duration in seconds
-    "expiry": 1        // expiry in seconds
+    "retry":  1, // job duration in seconds
+    "expiry": 1  // expiry in seconds
 }
 ```
 
- - The `job_duration` key determines how long after a task has been
-  dispatched to a worker it should be considered a failure if the
-  task hasn't been marked done in that amount of time.
-  Set to any value <= 0 to disable this feature.
-  By default, there is no limit on the job duration.
+ - `retry` determines how long after a task has been
+  dispatched to a worker it should be considered a failure
+  if the task hasn't been ACKed in that amount of time.
 
- - The `expiry` key determines how long the task should live in the
-  queue before it is considered to fail, regardless of whether it
+ - The `expiry` key determines how long the task should live
+  in the queue before it is deleted, regardless of whether it
   has been dispatched.
-  Setting this to any value <= 0 disables this feature.
-  By default, there is no limit on the job expiry.
 
 ### `POST /wait/`
 
@@ -52,17 +47,14 @@ The POST request should contain a JSON object with the following schema:
 
 ```js
 {
-    "timeout": 1, // timeout in seconds
+    "timeout": 1, // timeout in milliseconds
     "queues": ["queue-name-1", "queue-name-2"]
 }
 ```
 
- - The `queues` array can contain repeats to signify that you want
- a number of tasks from the same queue.
-
- - `timeout` can be set to -1 to wait until all queues are ready.
- By default `timeout`'s value will be 0, which is the fast case
- where the waiter returns almost immediately.
+ - The `queues` array can contain repeats.
+ - By default `timeout`'s value will be 0, which is the fast case
+   where the waiter returns almost immediately.
 
 The reply will be an array of tasks, as follows:
 
@@ -70,7 +62,6 @@ The reply will be an array of tasks, as follows:
 [
   {
     "id": "job-id",
-    "retries": 0,
     "content": { /* job-content */},
   },
   ...
@@ -78,15 +69,16 @@ The reply will be an array of tasks, as follows:
 ```
 
 It may contain nulls where queues are not ready (have no tasks).
-By definition, nulls will only appear when
-the waiter has timed out or a timeout of 0 was specified.
+By definition, nulls will only appear when the waiter has timed
+out or a timeout of 0 was specified.
 
-### `POST /done/:id`
+### `POST /ack/:id`
 
 Mark a task as completed.
 Also deletes it from the queue.
 
-### `POST /fail/:id`
+### `POST /nak/:id`
 
 Mark a task as failed.
-Failed tasks may be retried (up to the `retries` parameter in the task config).
+Failed tasks may be retried many times before they expire.
+However they will be put in the back of their queues.

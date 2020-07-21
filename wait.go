@@ -2,101 +2,119 @@ package main
 
 import "time"
 
-type Waiters struct {
-	head *Waiter
-	tail *Waiter
-}
-
-func (ws *Waiters) AddWaiter(w *Waiter) {
-	if ws.tail == nil {
-		ws.head = w
-		ws.tail = w
-	} else {
-		w.Prev = ws.tail
-		ws.tail.Next = w
-		ws.tail = w
-	}
-}
-
-func (ws *Waiters) Remove(w *Waiter) {
-	prev := w.Prev
-	next := w.Next
-	if prev != nil {
-		prev.Next = next
-	} else {
-		ws.head = next
-	}
-	if next != nil {
-		next.Prev = prev
-	} else {
-		ws.tail = prev
-	}
-	// Clear for GC
-	w.Next = nil
-	w.Prev = nil
-}
-
-func (ws *Waiters) Update(queues map[string]*Queue) {
-	curr := ws.head
-	for curr != nil {
-		if curr.IsReady(queues) {
-			ws.Remove(curr)
-			curr.Consume(queues)
-			curr.EmitReady()
-		}
-		curr = curr.Next
-	}
-}
-
-type WaitConfigJson struct {
+type WaitSpecConfig struct {
 	Queues  []string `json:"queues"`
-	Timeout int      `json:"timeout"` // Timeout in seconds
+	Timeout int64    `json:"timeout"`
 }
 
-type Waiter struct {
+type WaitDone struct {
+	now   time.Time
+	tasks []*Task
+}
+
+type WaitSpec struct {
 	Queues  []string
-	Tasks   []*Task
-	Ready   chan bool
-	Prev    *Waiter
-	Next    *Waiter
 	Timeout time.Duration
-	Done    bool
+	ready   chan WaitDone
+	// linked list
+	prev *WaitSpec
+	next *WaitSpec
 }
 
-func NewWaiterFromConfig(wc *WaitConfigJson) *Waiter {
-	return &Waiter{
-		Queues:  wc.Queues,
-		Tasks:   make([]*Task, len(wc.Queues)),
-		Ready:   make(chan bool, 1),
-		Timeout: time.Duration(wc.Timeout) * time.Second,
+func (wsc WaitSpecConfig) ToWaitSpec() WaitSpec {
+	return WaitSpec{
+		Queues:  wsc.Queues,
+		Timeout: time.Duration(wsc.Timeout) * time.Millisecond,
+		ready:   make(chan WaitDone),
 	}
 }
 
-func (w *Waiter) EmitReady() {
-	w.Ready <- true
-	close(w.Ready)
-}
-
-func (w *Waiter) IsReady(queues map[string]*Queue) bool {
-	counts := map[string]int{}
-	for _, x := range w.Queues {
-		counts[x]++
-	}
-	for x, n := range counts {
-		q := queues[x]
-		if q == nil || q.count < n {
-			return false
+func (ws WaitSpec) Take(mq *MQ, now time.Time) []*Task {
+	tasks := make([]*Task, len(ws.Queues))
+	// keep track of last inspected from each queue
+	heads := map[*Queue]*Task{}
+	// scan queues
+	for i, qn := range ws.Queues {
+		q := mq.Queues[qn]
+		if q == nil {
+			tasks[i] = nil
+			continue
 		}
+		t := heads[q]
+		if t == nil {
+			t = q.Head
+		} else {
+			t = t.next
+		}
+		t = q.NextUndispatched(t, now)
+		heads[q] = t
+		tasks[i] = t
 	}
-	return true
+	return tasks
 }
 
-func (w *Waiter) Consume(queues map[string]*Queue) {
-	w.Done = true
-	for i, name := range w.Queues {
-		q := queues[name]
-		if q != nil {
-			w.Tasks[i] = q.Dequeue()
+func (ws WaitSpec) Ready(mq *MQ, now time.Time) ([]*Task, bool) {
+	tasks := make([]*Task, len(ws.Queues))
+	// keep track of last inspected from each queue
+	heads := map[*Queue]*Task{}
+	// scan queues
+	for i, qn := range ws.Queues {
+		q := mq.Queues[qn]
+		if q == nil {
+			return nil, false
 		}
+		t := heads[q]
+		if t == nil {
+			t = q.Head
+		} else {
+			t = t.next
+		}
+		t = q.NextUndispatched(t, now)
+		if t == nil {
+			return nil, false
+		}
+		heads[q] = t
+		tasks[i] = t
+	}
+	return tasks, true
+}
+
+type Waiters struct {
+	Head *WaitSpec
+	Tail *WaitSpec
+}
+
+func NewWaiters() *Waiters {
+	return &Waiters{
+		Head: nil,
+		Tail: nil,
+	}
+}
+
+func (wss *Waiters) Remove(ws *WaitSpec) {
+	if ws.prev != nil {
+		ws.prev.next = ws.next
+	}
+	if ws.next != nil {
+		ws.next.prev = ws.prev
+	}
+	if wss.Head == ws {
+		wss.Head = ws.next
+	}
+	if wss.Tail == ws {
+		wss.Tail = ws.prev
+	}
+	ws.next = nil
+	ws.prev = nil
+}
+
+func (wss *Waiters) Append(ws *WaitSpec) {
+	if wss.Head == nil {
+		wss.Head = ws
+		wss.Tail = ws
+	} else {
+		wss.Tail.next = ws
+		ws.prev = wss.Tail
+		wss.Tail = ws
 	}
 }
