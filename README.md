@@ -26,8 +26,8 @@ The POST request should include a JSON object in the body with the following sch
 ```js
 {
     "content": { /* Anything can go here */ },
-    "retry":  1, // job duration in seconds
-    "expiry": 1  // expiry in seconds
+    "retry":  1, // job duration in seconds (default: 5 minutes)
+    "expiry": 1  // expiry in seconds (default: 1 day)
 }
 ```
 
@@ -47,7 +47,7 @@ The POST request should contain a JSON object with the following schema:
 
 ```js
 {
-    "timeout": 1, // timeout in milliseconds
+    "timeout": 1, // timeout in milliseconds (default: 0)
     "queues": ["queue-name-1", "queue-name-2"]
 }
 ```

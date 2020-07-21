@@ -4,7 +4,7 @@ import "time"
 
 type WaitSpecConfig struct {
 	Queues  []string `json:"queues"`
-	Timeout int64    `json:"timeout"`
+	Timeout uint32   `json:"timeout"`
 }
 
 type WaitDone struct {
@@ -19,6 +19,7 @@ type WaitSpec struct {
 	// linked list
 	prev *WaitSpec
 	next *WaitSpec
+	q    *Waiters
 }
 
 func (wsc WaitSpecConfig) ToWaitSpec() WaitSpec {
@@ -29,92 +30,88 @@ func (wsc WaitSpecConfig) ToWaitSpec() WaitSpec {
 	}
 }
 
-func (ws WaitSpec) Take(mq *MQ, now time.Time) []*Task {
-	tasks := make([]*Task, len(ws.Queues))
+func (w WaitSpec) Take(mq *MQ, now time.Time) []*Task {
+	tasks := make([]*Task, len(w.Queues))
 	// keep track of last inspected from each queue
 	heads := map[*Queue]*Task{}
 	// scan queues
-	for i, qn := range ws.Queues {
+	for i, qn := range w.Queues {
 		q := mq.Queues[qn]
 		if q == nil {
-			tasks[i] = nil
 			continue
 		}
-		t := heads[q]
-		if t == nil {
-			t = q.Head
-		} else {
-			t = t.next
+		if _, ok := heads[q]; !ok {
+			heads[q] = q.Head()
 		}
-		t = q.NextUndispatched(t, now)
-		heads[q] = t
-		tasks[i] = t
+		tasks[i], heads[q] = q.NextUndispatched(heads[q], now)
 	}
 	return tasks
 }
 
-func (ws WaitSpec) Ready(mq *MQ, now time.Time) ([]*Task, bool) {
-	tasks := make([]*Task, len(ws.Queues))
+func (w WaitSpec) Ready(mq *MQ, now time.Time) ([]*Task, bool) {
+	tasks := make([]*Task, len(w.Queues))
 	// keep track of last inspected from each queue
 	heads := map[*Queue]*Task{}
 	// scan queues
-	for i, qn := range ws.Queues {
+	for i, qn := range w.Queues {
 		q := mq.Queues[qn]
 		if q == nil {
 			return nil, false
 		}
-		t := heads[q]
-		if t == nil {
-			t = q.Head
-		} else {
-			t = t.next
+		if _, ok := heads[q]; !ok {
+			heads[q] = q.Head()
 		}
-		t = q.NextUndispatched(t, now)
-		if t == nil {
+		tasks[i], heads[q] = q.NextUndispatched(heads[q], now)
+		if tasks[i] == nil {
 			return nil, false
 		}
-		heads[q] = t
-		tasks[i] = t
 	}
 	return tasks, true
 }
 
+func (w WaitSpec) Next() *WaitSpec {
+	if w.next == &w.q.root {
+		return nil
+	}
+	return w.next
+}
+
 type Waiters struct {
-	Head *WaitSpec
-	Tail *WaitSpec
+	root WaitSpec
 }
 
 func NewWaiters() *Waiters {
-	return &Waiters{
-		Head: nil,
-		Tail: nil,
-	}
+	w := &Waiters{}
+	w.root.q = w
+	w.root.prev = &w.root
+	w.root.next = &w.root
+	return w
 }
 
-func (wss *Waiters) Remove(ws *WaitSpec) {
-	if ws.prev != nil {
-		ws.prev.next = ws.next
-	}
-	if ws.next != nil {
-		ws.next.prev = ws.prev
-	}
-	if wss.Head == ws {
-		wss.Head = ws.next
-	}
-	if wss.Tail == ws {
-		wss.Tail = ws.prev
-	}
-	ws.next = nil
-	ws.prev = nil
+func (ws *Waiters) Remove(w *WaitSpec) {
+	w.prev.next = w.next
+	w.next.prev = w.prev
+	w.next = nil
+	w.prev = nil
+	w.q = nil
 }
 
-func (wss *Waiters) Append(ws *WaitSpec) {
-	if wss.Head == nil {
-		wss.Head = ws
-		wss.Tail = ws
-	} else {
-		wss.Tail.next = ws
-		ws.prev = wss.Tail
-		wss.Tail = ws
+func (ws *Waiters) Append(w *WaitSpec) {
+	w.q = ws
+	at := ws.root.prev
+	w.next = at.next
+	w.prev = at
+	at.next.prev = w
+	at.next = w
+}
+
+func (ws *Waiters) Empty() bool {
+	return ws.root.next == &ws.root
+}
+
+func (ws *Waiters) Head() *WaitSpec {
+	if ws.Empty() {
+		return nil
 	}
+	return ws.root.next
 }

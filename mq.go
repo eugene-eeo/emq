@@ -46,6 +46,7 @@ func (mq *MQ) Add(qn string, t *Task) {
 	q := mq.Queues[qn]
 	if q == nil {
 		q = &Queue{Name: qn}
+		q.Init()
 		mq.Queues[qn] = q
 	}
 	q.Append(t)
@@ -71,7 +72,7 @@ func (mq *MQ) deleteTask(t *Task) {
 	delete(mq.Tasks, t.ID)
 	q := t.q
 	q.Remove(t)
-	if q.Head == nil {
+	if q.Empty() {
 		delete(mq.Queues, q.Name)
 	}
 }

@@ -5,18 +5,25 @@ import "github.com/satori/go.uuid"
 
 // TaskConfig is the schema for the JSON blob used to create tasks.
 type TaskConfig struct {
-	Retry   uint64      `json:"retry"`
-	Expiry  uint64      `json:"expiry"`
+	Retry   *uint32     `json:"retry"`
+	Expiry  *uint32     `json:"expiry"`
 	Content interface{} `json:"content"`
 }
 
-func (tc TaskConfig) ToTask(id uuid.UUID) Task {
-	return Task{
+func (tc TaskConfig) ToTask(id uuid.UUID, now time.Time) Task {
+	t := Task{
 		ID:      id,
 		Content: tc.Content,
-		retry:   time.Second * time.Duration(tc.Retry),
-		expiry:  time.Now().Add(time.Second * time.Duration(tc.Expiry)),
+		retry:   time.Minute * 5,
+		expiry:  now.Add(time.Hour * 24),
 	}
+	if tc.Retry != nil {
+		t.retry = time.Second * time.Duration(*tc.Retry)
+	}
+	if tc.Expiry != nil {
+		t.expiry = now.Add(time.Second * time.Duration(*tc.Expiry))
+	}
+	return t
 }
 
 type Task struct {
@@ -66,47 +73,58 @@ func (t *Task) NeedRetry(now time.Time) bool {
 	return t.dispatched && now.After(t.retryTime) && !t.Expired(now)
 }
 
+// Next returns the next task in the linked list, if any
+func (t *Task) Next() *Task {
+	if t.next == &t.q.root {
+		return nil
+	}
+	return t.next
+}
+
 type Queue struct {
 	Name string
-	Head *Task
-	Tail *Task
+	root Task
+}
+
+func (q *Queue) Init() *Queue {
+	q.root.next = &q.root
+	q.root.prev = &q.root
+	return q
 }
 
 func (q *Queue) Append(t *Task) {
 	t.q = q
-	if q.Head == nil {
-		q.Head = t
-		q.Tail = t
-	} else {
-		q.Tail.next = t
-		t.prev = q.Tail
-		q.Tail = t
-	}
+	at := q.root.prev // append to this node
+	t.next = at.next
+	t.prev = at
+	at.next.prev = t
+	at.next = t
 }
 
 func (q *Queue) Remove(t *Task) {
-	if t.prev != nil {
-		t.prev.next = t.next
-	}
-	if t.next != nil {
-		t.next.prev = t.prev
-	}
-	if q.Head == t {
-		q.Head = t.next
-	}
-	if q.Tail == t {
-		q.Tail = t.prev
-	}
+	t.prev.next = t.next
+	t.next.prev = t.prev
 	t.next = nil
 	t.prev = nil
 	t.q = nil
 }
 
-func (q *Queue) NextUndispatched(t *Task, now time.Time) *Task {
-	for ; t != nil; t = t.next {
+func (q *Queue) Empty() bool {
+	return q.root.next == &q.root
+}
+
+func (q *Queue) Head() *Task {
+	if q.Empty() {
+		return nil
+	}
+	return q.root.next
+}
+
+func (q *Queue) NextUndispatched(t *Task, now time.Time) (curr *Task, next *Task) {
+	for ; t != nil; t = t.Next() {
 		if t.CanDispatch(now) {
-			return t
+			return t, t.Next()
 		}
 	}
-	return nil
+	return nil, nil
 }

@@ -7,11 +7,11 @@ import "time"
 
 func main() {
 	addr := flag.String("addr", "localhost:8080", "address to serve on")
-	freq := flag.Uint64("gc-freq", 5*60, "gc frequency (in seconds)")
+	freq := flag.Int64("gc-freq", 5*60, "gc frequency (in seconds)")
 
 	flag.Parse()
 
-	if *freq == 0 {
+	if *freq <= 0 {
 		log.Fatal("invalid frequency: ", *freq)
 	}
 

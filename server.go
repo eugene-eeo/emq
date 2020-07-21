@@ -14,32 +14,6 @@ type Server struct {
 	gcfreq time.Duration
 }
 
-func NewServer(gcfreq time.Duration) *Server {
-	s := &Server{
-		mq:     NewMQ(),
-		ws:     NewWaiters(),
-		mux:    http.NewServeMux(),
-		gcfreq: gcfreq,
-	}
-	PostJSON := func(f http.HandlerFunc) http.Handler {
-		return Chain(f,
-			EnforceMethodMiddleware("POST"),
-			EnforceJSONMiddleware(),
-		)
-	}
-	s.mux.Handle("/enqueue/", PostJSON(s.Enqueue))
-	s.mux.Handle("/wait/", PostJSON(s.Wait))
-	s.mux.Handle("/ack/", PostJSON(s.FindDispatchedTaskHTTP("/ack/", func(t *Task) {
-		s.mq.DeleteTask(t)
-		go s.UpdateWaitSpecs()
-	})))
-	s.mux.Handle("/nak/", PostJSON(s.FindDispatchedTaskHTTP("/nak/", func(t *Task) {
-		s.mq.Failed(t)
-		go s.UpdateWaitSpecs()
-	})))
-	return s
-}
-
 func (s *Server) GetID() (uuid.UUID, error) {
 	for {
 		id, err := uuid.NewV4()
@@ -58,7 +32,7 @@ func (s *Server) UpdateWaitSpecs() {
 
 	now := time.Now()
 	s.mq.GC(now)
-	for w := s.ws.Head; w != nil; w = w.next {
+	for w := s.ws.Head(); w != nil; w = w.Next() {
 		tasks, ready := w.Ready(s.mq, now)
 		if ready {
 			s.Consume(tasks, now)
@@ -96,7 +70,7 @@ func (s *Server) Enqueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	task := tc.ToTask(id)
+	task := tc.ToTask(id, time.Now())
 	s.mq.Add(qn, &task)
 	go s.UpdateWaitSpecs()
 }
@@ -179,4 +153,30 @@ func (s *Server) FindDispatchedTaskHTTP(url string, next func(t *Task)) http.Han
 		}
 		next(task)
 	}
+}
+
+func NewServer(gcfreq time.Duration) *Server {
+	s := &Server{
+		mq:     NewMQ(),
+		ws:     NewWaiters(),
+		mux:    http.NewServeMux(),
+		gcfreq: gcfreq,
+	}
+	PostJSON := func(f http.HandlerFunc) http.Handler {
+		return Chain(f,
+			EnforceMethodMiddleware("POST"),
+			EnforceJSONMiddleware(),
+		)
+	}
+	s.mux.Handle("/enqueue/", PostJSON(s.Enqueue))
+	s.mux.Handle("/wait/", PostJSON(s.Wait))
+	s.mux.Handle("/ack/", PostJSON(s.FindDispatchedTaskHTTP("/ack/", func(t *Task) {
+		s.mq.DeleteTask(t)
+		go s.UpdateWaitSpecs()
+	})))
+	s.mux.Handle("/nak/", PostJSON(s.FindDispatchedTaskHTTP("/nak/", func(t *Task) {
+		s.mq.Failed(t)
+		go s.UpdateWaitSpecs()
+	})))
+	return s
 }
