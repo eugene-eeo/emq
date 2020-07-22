@@ -94,7 +94,7 @@ func (s *Server) Wait(w http.ResponseWriter, r *http.Request) {
 	dec.DisallowUnknownFields()
 	err := dec.Decode(&wsc)
 	if err != nil {
-		http.Error(w, http.StatusText(400), 400)
+		http.Error(w, err.Error(), 400)
 		return
 	}
 
@@ -148,7 +148,7 @@ func (s *Server) FindDispatchedTaskHTTP(url string, next func(t *Task)) http.Han
 		now := time.Now()
 		task := s.mq.Find(uid, now)
 		if task == nil || !task.InDispatch(now) {
-			http.Error(w, http.StatusText(404), 404)
+			http.Error(w, "Invalid task ID or task expired/dispatch timed out.", 404)
 			return
 		}
 		next(task)
