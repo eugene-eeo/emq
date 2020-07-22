@@ -74,7 +74,7 @@ func (s *Server) GC(now time.Time) {
 
 func (s *Server) Loop() {
 	for {
-		now := <-time.After(time.Duration(5) * time.Minute)
+		now := <-time.After(s.gcfreq)
 		s.GC(now)
 	}
 }
