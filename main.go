@@ -7,15 +7,20 @@ import "time"
 
 func main() {
 	addr := flag.String("addr", "localhost:8080", "address to serve on")
-	freq := flag.Int64("gc-freq", 5*60, "gc frequency (in seconds)")
+	freq := flag.String("gc-freq", "5m", "gc frequency")
 
 	flag.Parse()
 
-	if *freq <= 0 {
-		log.Fatal("invalid frequency: ", *freq)
+	duration, err := time.ParseDuration(*freq)
+	if err != nil {
+		log.Fatal("invalid duration:", err)
 	}
 
-	s := NewServer(time.Duration(*freq) * time.Second)
+	if duration <= 0 {
+		log.Fatal("invalid duration (<=0)")
+	}
+
+	s := NewServer(duration)
 	go s.Loop()
 	http.ListenAndServe(*addr, s.mux)
 }

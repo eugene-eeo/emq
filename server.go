@@ -126,23 +126,30 @@ func (s *Server) Wait(w http.ResponseWriter, r *http.Request) {
 	enc.Encode(tasks)
 }
 
-func (s *Server) FindDispatchedTaskHTTP(url string, next func(t *Task)) http.HandlerFunc {
+type UIDs struct {
+	IDs []uid.UID `json:"ids"`
+}
+
+func (s *Server) UpdateDispatchedTaskHTTP(then func(t *Task)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := r.URL.Path[len(url):]
-		uid, err := uid.FromString(id)
-		if err != nil {
+		uids := UIDs{}
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024*1024))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&uids); err != nil {
 			http.Error(w, err.Error(), 400)
 			return
 		}
+
 		s.Lock()
 		defer s.Unlock()
 		now := time.Now()
-		task := s.mq.Find(uid, now)
-		if task == nil || !task.InDispatch(now) {
-			http.Error(w, "Invalid task ID or task expired/dispatch timed out.", 404)
-			return
+		for _, uid := range uids.IDs {
+			task := s.mq.Find(uid, now)
+			if task != nil && task.InDispatch(now) {
+				then(task)
+			}
 		}
-		next(task)
+		go s.UpdateWaitSpecs()
 	}
 }
 
@@ -161,13 +168,7 @@ func NewServer(gcfreq time.Duration) *Server {
 	}
 	s.mux.Handle("/enqueue/", PostJSON(s.Enqueue))
 	s.mux.Handle("/wait/", PostJSON(s.Wait))
-	s.mux.Handle("/ack/", PostJSON(s.FindDispatchedTaskHTTP("/ack/", func(t *Task) {
-		s.mq.DeleteTask(t)
-		go s.UpdateWaitSpecs()
-	})))
-	s.mux.Handle("/nak/", PostJSON(s.FindDispatchedTaskHTTP("/nak/", func(t *Task) {
-		s.mq.Failed(t)
-		go s.UpdateWaitSpecs()
-	})))
+	s.mux.Handle("/ack/", PostJSON(s.UpdateDispatchedTaskHTTP(s.mq.DeleteTask)))
+	s.mux.Handle("/nak/", PostJSON(s.UpdateDispatchedTaskHTTP(s.mq.Failed)))
 	return s
 }

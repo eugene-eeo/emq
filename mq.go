@@ -1,6 +1,5 @@
 package main
 
-import "log"
 import "time"
 import "container/heap"
 import "github.com/eugene-eeo/emq/uid"
@@ -101,8 +100,6 @@ func (mq *MQ) GC(now time.Time) {
 		if !task.Expired(now) {
 			break
 		}
-		log.Println("Deleting Task:", task.ID)
-		// delete task
 		heap.Pop(mq.ByExpiry)
 		mq.deleteTask(task)
 		mq.deleteFromRetry(task)
@@ -112,7 +109,6 @@ func (mq *MQ) GC(now time.Time) {
 		if !task.NeedRetry(now) {
 			break
 		}
-		log.Println("Task Failed:", task.ID)
 		heap.Pop(mq.ByRetry)
 		task.Undispatch()
 	}
