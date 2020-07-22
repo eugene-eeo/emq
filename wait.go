@@ -32,9 +32,7 @@ func (wsc WaitSpecConfig) ToWaitSpec() WaitSpec {
 
 func (w WaitSpec) Take(mq *MQ, now time.Time) []*Task {
 	tasks := make([]*Task, len(w.Queues))
-	// keep track of last inspected from each queue
 	heads := map[*Queue]*Task{}
-	// scan queues
 	for i, qn := range w.Queues {
 		q := mq.Queues[qn]
 		if q == nil {
@@ -50,9 +48,7 @@ func (w WaitSpec) Take(mq *MQ, now time.Time) []*Task {
 
 func (w WaitSpec) Ready(mq *MQ, now time.Time) ([]*Task, bool) {
 	tasks := make([]*Task, len(w.Queues))
-	// keep track of last inspected from each queue
 	heads := map[*Queue]*Task{}
-	// scan queues
 	for i, qn := range w.Queues {
 		q := mq.Queues[qn]
 		if q == nil {
