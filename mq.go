@@ -3,7 +3,7 @@ package main
 import "log"
 import "time"
 import "container/heap"
-import "github.com/satori/go.uuid"
+import "github.com/eugene-eeo/emq/uid"
 
 type TaskHeap struct {
 	T []*Task
@@ -27,7 +27,7 @@ func (t *TaskHeap) Pop() interface{} {
 }
 
 type MQ struct {
-	Tasks    map[uuid.UUID]*Task
+	Tasks    map[uid.UID]*Task
 	Queues   map[string]*Queue
 	ByExpiry *TaskHeap
 	ByRetry  *TaskHeap
@@ -35,7 +35,7 @@ type MQ struct {
 
 func NewMQ() *MQ {
 	return &MQ{
-		Tasks:    map[uuid.UUID]*Task{},
+		Tasks:    map[uid.UID]*Task{},
 		Queues:   map[string]*Queue{},
 		ByExpiry: &TaskHeap{F: func(t *Task) time.Time { return t.expiry }},
 		ByRetry:  &TaskHeap{F: func(t *Task) time.Time { return t.retryTime }},
@@ -54,7 +54,7 @@ func (mq *MQ) Add(qn string, t *Task) {
 	heap.Push(mq.ByExpiry, t)
 }
 
-func (mq *MQ) Find(id uuid.UUID, now time.Time) *Task {
+func (mq *MQ) Find(id uid.UID, now time.Time) *Task {
 	mq.GC(now)
 	return mq.Tasks[id]
 }

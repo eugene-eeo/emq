@@ -4,7 +4,7 @@ import "time"
 import "sync"
 import "net/http"
 import "encoding/json"
-import "github.com/satori/go.uuid"
+import "github.com/eugene-eeo/emq/uid"
 
 type Server struct {
 	sync.Mutex
@@ -14,14 +14,11 @@ type Server struct {
 	gcfreq time.Duration
 }
 
-func (s *Server) GetID() (uuid.UUID, error) {
+func (s *Server) GetID() uid.UID {
 	for {
-		id, err := uuid.NewV4()
-		if err != nil {
-			return id, err
-		}
+		id := uid.Generate()
 		if s.mq.Tasks[id] == nil {
-			return id, nil
+			return id
 		}
 	}
 }
@@ -64,13 +61,7 @@ func (s *Server) Enqueue(w http.ResponseWriter, r *http.Request) {
 	s.Lock()
 	defer s.Unlock()
 
-	id, err := s.GetID()
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-
-	task := tc.ToTask(id, time.Now())
+	task := tc.ToTask(s.GetID(), time.Now())
 	s.mq.Add(qn, &task)
 	go s.UpdateWaitSpecs()
 }
@@ -138,7 +129,7 @@ func (s *Server) Wait(w http.ResponseWriter, r *http.Request) {
 func (s *Server) FindDispatchedTaskHTTP(url string, next func(t *Task)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.URL.Path[len(url):]
-		uid, err := uuid.FromString(id)
+		uid, err := uid.FromString(id)
 		if err != nil {
 			http.Error(w, err.Error(), 400)
 			return

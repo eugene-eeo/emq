@@ -30,7 +30,7 @@ func (wsc WaitSpecConfig) ToWaitSpec() WaitSpec {
 	}
 }
 
-func (w WaitSpec) Take(mq *MQ, now time.Time) []*Task {
+func (w *WaitSpec) Take(mq *MQ, now time.Time) []*Task {
 	tasks := make([]*Task, len(w.Queues))
 	heads := map[*Queue]*Task{}
 	for i, qn := range w.Queues {
@@ -46,7 +46,7 @@ func (w WaitSpec) Take(mq *MQ, now time.Time) []*Task {
 	return tasks
 }
 
-func (w WaitSpec) Ready(mq *MQ, now time.Time) ([]*Task, bool) {
+func (w *WaitSpec) Ready(mq *MQ, now time.Time) ([]*Task, bool) {
 	tasks := make([]*Task, len(w.Queues))
 	heads := map[*Queue]*Task{}
 	for i, qn := range w.Queues {
@@ -67,7 +67,7 @@ func (w WaitSpec) Ready(mq *MQ, now time.Time) ([]*Task, bool) {
 	return tasks, true
 }
 
-func (w WaitSpec) Next() *WaitSpec {
+func (w *WaitSpec) Next() *WaitSpec {
 	if w.next == &w.q.root {
 		return nil
 	}

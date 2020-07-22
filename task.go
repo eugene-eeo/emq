@@ -1,7 +1,7 @@
 package main
 
 import "time"
-import "github.com/satori/go.uuid"
+import "github.com/eugene-eeo/emq/uid"
 
 // TaskConfig is the schema for the JSON blob used to create tasks.
 type TaskConfig struct {
@@ -10,7 +10,7 @@ type TaskConfig struct {
 	Content interface{} `json:"content"`
 }
 
-func (tc TaskConfig) ToTask(id uuid.UUID, now time.Time) Task {
+func (tc TaskConfig) ToTask(id uid.UID, now time.Time) Task {
 	t := Task{
 		ID:      id,
 		Content: tc.Content,
@@ -27,7 +27,7 @@ func (tc TaskConfig) ToTask(id uuid.UUID, now time.Time) Task {
 }
 
 type Task struct {
-	ID      uuid.UUID   `json:"id"`
+	ID      uid.UID     `json:"id"`
 	Content interface{} `json:"content"`
 	// timing
 	expiry     time.Time
