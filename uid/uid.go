@@ -1,3 +1,5 @@
+// Package uid implements simple 16-byte UIDs.
+// UIDs in this package are encoded with Base64 (no padding).
 package uid
 
 import "errors"
