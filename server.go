@@ -91,14 +91,9 @@ func (s *Server) Wait(w http.ResponseWriter, r *http.Request) {
 
 	var tasks []*Task
 	ws := wsc.ToWaitSpec()
+	have_tasks := false
 
-	if ws.Timeout == 0 {
-		s.Lock()
-		now := time.Now()
-		tasks = ws.Take(s.mq, now)
-		s.Consume(tasks, now)
-		s.Unlock()
-	} else {
+	if ws.Timeout > 0 {
 		s.Lock()
 		s.ws.Append(&ws)
 		s.Unlock()
@@ -108,19 +103,22 @@ func (s *Server) Wait(w http.ResponseWriter, r *http.Request) {
 		select {
 		case wd := <-ws.ready:
 			tasks = wd.tasks
-		case now := <-time.After(ws.Timeout):
-			// timeout -- just claim what we can
-			s.Lock()
-			tasks = ws.Take(s.mq, now)
-			s.Consume(tasks, now)
-			s.Unlock()
+			have_tasks = true
+		case <-time.After(ws.Timeout):
 		}
-
 		s.Lock()
 		s.ws.Remove(&ws)
 		s.Unlock()
 	}
 
+	if !have_tasks {
+		// Just take what we can (because of timeout)
+		s.Lock()
+		now := time.Now()
+		tasks = ws.Take(s.mq, now)
+		s.Consume(tasks, now)
+		s.Unlock()
+	}
 	w.WriteHeader(200)
 	enc := json.NewEncoder(w)
 	enc.Encode(tasks)
