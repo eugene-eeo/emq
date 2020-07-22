@@ -128,7 +128,7 @@ type UIDs struct {
 	IDs []uid.UID `json:"ids"`
 }
 
-func (s *Server) UpdateDispatchedTaskHTTP(then func(t *Task)) http.HandlerFunc {
+func (s *Server) UpdateDispatchedTasksHTTP(then func(t *Task)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uids := UIDs{}
 		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024*1024))
@@ -166,7 +166,7 @@ func NewServer(gcfreq time.Duration) *Server {
 	}
 	s.mux.Handle("/enqueue/", PostJSON(s.Enqueue))
 	s.mux.Handle("/wait/", PostJSON(s.Wait))
-	s.mux.Handle("/ack/", PostJSON(s.UpdateDispatchedTaskHTTP(s.mq.DeleteTask)))
-	s.mux.Handle("/nak/", PostJSON(s.UpdateDispatchedTaskHTTP(s.mq.Failed)))
+	s.mux.Handle("/ack/", PostJSON(s.UpdateDispatchedTasksHTTP(s.mq.DeleteTask)))
+	s.mux.Handle("/nak/", PostJSON(s.UpdateDispatchedTasksHTTP(s.mq.Failed)))
 	return s
 }
