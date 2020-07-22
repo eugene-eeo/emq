@@ -61,10 +61,12 @@ func (w WaitSpec) Ready(mq *MQ, now time.Time) ([]*Task, bool) {
 		if _, ok := heads[q]; !ok {
 			heads[q] = q.Head()
 		}
-		tasks[i], heads[q] = q.NextUndispatched(heads[q], now)
-		if tasks[i] == nil {
+		t, next := q.NextUndispatched(heads[q], now)
+		if t == nil {
 			return nil, false
 		}
+		tasks[i] = t
+		heads[q] = next
 	}
 	return tasks, true
 }
