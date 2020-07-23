@@ -1,7 +1,9 @@
 package main
 
+import "errors"
 import "net/http"
 import "regexp"
+import "encoding/json"
 
 type Middleware func(http.HandlerFunc) http.HandlerFunc
 
@@ -40,4 +42,19 @@ func Chain(h http.HandlerFunc, m ...Middleware) http.Handler {
 		h = m[i](h)
 	}
 	return h
+}
+
+func decodeJSONFromHTTP(w http.ResponseWriter, r *http.Request, v interface{}) error {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024*1024))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		http.Error(w, err.Error(), 400)
+		return err
+	}
+	if dec.More() {
+		err := errors.New("expected exactly 1 top-level object")
+		http.Error(w, err.Error(), 400)
+		return err
+	}
+	return nil
 }
