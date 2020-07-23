@@ -50,11 +50,7 @@ func (s *Server) Enqueue(w http.ResponseWriter, r *http.Request) {
 	// decode request
 	qn := r.URL.Path[len("/enqueue/"):]
 	tc := TaskConfig{}
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024*1024))
-	dec.DisallowUnknownFields()
-	err := dec.Decode(&tc)
-	if err != nil {
-		http.Error(w, http.StatusText(400), 400)
+	if err := decodeJSONFromHTTP(w, r, &tc); err != nil {
 		return
 	}
 
@@ -81,11 +77,7 @@ func (s *Server) Loop() {
 
 func (s *Server) Wait(w http.ResponseWriter, r *http.Request) {
 	wsc := WaitSpecConfig{}
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024*1024))
-	dec.DisallowUnknownFields()
-	err := dec.Decode(&wsc)
-	if err != nil {
-		http.Error(w, err.Error(), 400)
+	if err := decodeJSONFromHTTP(w, r, &wsc); err != nil {
 		return
 	}
 
@@ -131,10 +123,7 @@ type UIDs struct {
 func (s *Server) UpdateDispatchedTasksHTTP(then func(t *Task)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uids := UIDs{}
-		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024*1024))
-		dec.DisallowUnknownFields()
-		if err := dec.Decode(&uids); err != nil {
-			http.Error(w, err.Error(), 400)
+		if err := decodeJSONFromHTTP(w, r, &uids); err != nil {
 			return
 		}
 
