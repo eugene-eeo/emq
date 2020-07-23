@@ -1,5 +1,6 @@
 package main
 
+import "strconv"
 import "time"
 import "sync"
 import "net/http"
@@ -7,7 +8,7 @@ import "encoding/json"
 import "github.com/eugene-eeo/emq/uid"
 
 type Server struct {
-	sync.Mutex
+	sync.RWMutex
 	mq     *MQ
 	ws     *Waiters
 	mux    *http.ServeMux
@@ -62,16 +63,12 @@ func (s *Server) Enqueue(w http.ResponseWriter, r *http.Request) {
 	go s.UpdateWaitSpecs()
 }
 
-func (s *Server) GC(now time.Time) {
-	s.Lock()
-	defer s.Unlock()
-	s.mq.GC(now)
-}
-
-func (s *Server) Loop() {
+func (s *Server) GCLoop() {
 	for {
 		now := <-time.After(s.gcfreq)
-		s.GC(now)
+		s.Lock()
+		s.mq.GC(now)
+		s.Unlock()
 	}
 }
 
@@ -140,6 +137,46 @@ func (s *Server) UpdateDispatchedTasksHTTP(then func(t *Task)) http.HandlerFunc 
 	}
 }
 
+func (s *Server) Queues(w http.ResponseWriter, r *http.Request) {
+	s.RLock()
+	queues := make([]string, 0, len(s.mq.Queues))
+	for qn := range s.mq.Queues {
+		queues = append(queues, qn)
+	}
+	s.RUnlock()
+	w.WriteHeader(200)
+	enc := json.NewEncoder(w)
+	enc.Encode(queues)
+}
+
+func (s *Server) Peek(w http.ResponseWriter, r *http.Request) {
+	qn := r.URL.Path[len("/peek/"):]
+	n, err := strconv.Atoi(r.URL.Query().Get("n"))
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	s.RLock()
+	now := time.Now()
+	tasks := []*Task{}
+	q := s.mq.Queues[qn]
+	if q != nil {
+		t := q.Head()
+		for i := 0; i < n; i++ {
+			u, next := q.NextUndispatched(t, now)
+			if u == nil {
+				break
+			}
+			tasks = append(tasks, u)
+			t = next
+		}
+	}
+	s.RUnlock()
+	w.WriteHeader(200)
+	enc := json.NewEncoder(w)
+	enc.Encode(tasks)
+}
+
 func NewServer(gcfreq time.Duration) *Server {
 	s := &Server{
 		mq:     NewMQ(),
@@ -157,5 +194,7 @@ func NewServer(gcfreq time.Duration) *Server {
 	s.mux.Handle("/wait/", PostJSON(s.Wait))
 	s.mux.Handle("/ack/", PostJSON(s.UpdateDispatchedTasksHTTP(s.mq.DeleteTask)))
 	s.mux.Handle("/nak/", PostJSON(s.UpdateDispatchedTasksHTTP(s.mq.Failed)))
+	s.mux.Handle("/peek/", Chain(s.Peek, EnforceMethodMiddleware("GET")))
+	s.mux.Handle("/queues/", Chain(s.Queues, EnforceMethodMiddleware("GET")))
 	return s
 }
