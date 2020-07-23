@@ -88,3 +88,12 @@ Also deletes it from the queue.
 Same as `/ack`, but mark tasks as failed.
 Failed tasks may be retried many times before they expire.
 However they will be put in the back of their queues.
+
+
+### `GET /peek/<queue-name>?n=<num>`
+
+Get (but not dispatch) at most `num` number of jobs from `<queue-name>`.
+
+### `GET /queues/`
+
+Get the names of all current queues (as a JSON array of strings).
